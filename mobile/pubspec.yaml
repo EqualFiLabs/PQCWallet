@@ -1,0 +1,28 @@
+name: pqc_wallet
+description: Quantum-safe ERC-4337 smart wallet (Flutter)
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  http: ^1.2.1
+  web3dart: ^2.7.3
+  bip39: ^1.0.6
+  bip32: ^2.0.0
+  crypto: ^3.0.3
+  flutter_secure_storage: ^9.0.0
+  collection: ^1.18.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/config.example.json
