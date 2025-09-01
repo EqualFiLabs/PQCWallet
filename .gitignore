@@ -1,0 +1,14 @@
+ # General
+ .DS_Store
+ node_modules/
+ .env
+ 
+ # Flutter
+ build/
+ .flutter-plugins
+ .flutter-plugins-dependencies
+ .dart_tool/
+ 
+ # Solidity / Foundry
+ out/
+ cache/
