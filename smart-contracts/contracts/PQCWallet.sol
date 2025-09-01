@@ -27,6 +27,11 @@ contract PQCWallet {
         _;
     }
 
+    /// @notice Deploys the wallet with its EntryPoint, owner, and initial WOTS commitments.
+    /// @param _ep Address of the ERC-4337 EntryPoint.
+    /// @param _owner ECDSA owner of the wallet.
+    /// @param _initialPkCommit Commitment to the initial WOTS public key.
+    /// @param _nextPkCommit Optional pre-staged commitment for the next WOTS key.
     constructor(IEntryPoint _ep, address _owner, bytes32 _initialPkCommit, bytes32 _nextPkCommit) {
         entryPoint = _ep;
         owner = _owner;
@@ -42,6 +47,11 @@ contract PQCWallet {
     ///       wotsPk[67]*32,
     ///       nextPkCommit[32]
     ///   )
+    /// @notice Validates a user operation and rotates the WOTS commitment.
+    /// @param userOp The user operation to validate.
+    /// @param userOpHash Hash of the user operation.
+    /// @param /*missingAccountFunds*/ Ignored funds parameter required by EntryPoint.
+    /// @return validationData Zero on success, otherwise packed validation data.
     function validateUserOp(
         IEntryPoint.UserOperation calldata userOp,
         bytes32 userOpHash,
@@ -89,6 +99,10 @@ contract PQCWallet {
         return 0; // valid
     }
 
+    /// @notice Execute a call from the wallet through the EntryPoint.
+    /// @param target Destination contract for the call.
+    /// @param value ETH value to forward with the call.
+    /// @param data Calldata to forward.
     function execute(address target, uint256 value, bytes calldata data) external onlyEntryPoint {
         (bool ok, bytes memory ret) = target.call{value: value}(data);
         require(ok, _revertReason(ret));
@@ -96,6 +110,9 @@ contract PQCWallet {
     }
 
     /// @notice Batch multiple calls (e.g., permit -> transfer) in a single UserOp.
+    /// @param targets Destination contracts for each call.
+    /// @param values ETH values to forward with each call.
+    /// @param datas Calldata for each call.
     function executeBatch(address[] calldata targets, uint256[] calldata values, bytes[] calldata datas) external onlyEntryPoint {
         require(targets.length == values.length && targets.length == datas.length, "len mismatch");
         for (uint256 i = 0; i < targets.length; i++) {
@@ -105,14 +122,18 @@ contract PQCWallet {
         emit ExecutedBatch(targets.length);
     }
 
-    // Owner convenience to pre-stage next commitment
+    /// @notice Owner convenience method to pre-stage the next WOTS commitment.
+    /// @param nextCommit Commitment to the next WOTS public key.
     function setNextPkCommit(bytes32 nextCommit) external {
         require(msg.sender == owner, "not owner");
         nextPkCommit = nextCommit;
         emit WOTSCommitmentsUpdated(currentPkCommit, nextPkCommit);
     }
 
+    /// @notice Receive plain ETH transfers.
     receive() external payable {}
+
+    /// @notice Deposit ETH to the EntryPoint on behalf of this wallet.
     function depositToEntryPoint() external payable {
         entryPoint.depositTo{value: msg.value}(address(this));
     }
