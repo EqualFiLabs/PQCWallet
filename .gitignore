@@ -12,3 +12,5 @@
  # Solidity / Foundry
  out/
  cache/
+
+ mobile/assets/config.json
