@@ -1,14 +1,16 @@
-# General
-.DS_Store
-node_modules/
-.env
+ # General
+ .DS_Store
+ node_modules/
+ .env
+ 
+ # Flutter
+ build/
+ .flutter-plugins
+ .flutter-plugins-dependencies
+ .dart_tool/
+ 
+ # Solidity / Foundry
+ out/
+ cache/
 
-# Flutter
-build/
-.flutter-plugins
-.flutter-plugins-dependencies
-.dart_tool/
-
-# Solidity / Foundry
-out/
-cache/
+ mobile/assets/config.json
