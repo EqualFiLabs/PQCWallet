@@ -11,6 +11,8 @@ jobs:
         working-directory: smart-contracts
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - name: Setup Foundry
         uses: foundry-rs/foundry-toolchain@v1
         with:
@@ -29,6 +31,8 @@ jobs:
         working-directory: mobile
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
