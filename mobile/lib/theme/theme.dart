@@ -5,7 +5,6 @@ ThemeData cyberpunkTheme() {
   const surface = Color(0xFF11151F);
   const neon = Color(0xFF00E5FF);
   const magenta = Color(0xFFFF3D81);
-  const success = Color(0xFF95FF00);
 
   final colorScheme = ColorScheme.dark(
     surface: surface,
@@ -33,14 +32,17 @@ ThemeData cyberpunkTheme() {
       style: ElevatedButton.styleFrom(
         backgroundColor: neon,
         foregroundColor: Colors.black,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.all(Radius.circular(12))),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.all(Radius.circular(12))),
         elevation: 0,
       ),
     ),
     inputDecorationTheme: const InputDecorationTheme(
       filled: true,
       fillColor: Color(0x151BE0FF),
-      border: OutlineInputBorder(borderRadius: BorderRadius.all(Radius.circular(12)), borderSide: BorderSide.none),
+      border: OutlineInputBorder(
+          borderRadius: BorderRadius.all(Radius.circular(12)),
+          borderSide: BorderSide.none),
       hintStyle: TextStyle(color: Colors.white54),
     ),
   );
