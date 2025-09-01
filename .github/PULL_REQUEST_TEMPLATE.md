@@ -6,3 +6,9 @@ Describe the motivation for this change.
 
 - [ ] `forge test -vv`
 - [ ] `flutter test`
+
+## Checklist
+
+- [ ] Tests added or updated
+- [ ] Docs updated
+- [ ] Lint checks pass
