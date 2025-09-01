@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:bip39/bip39.dart' as bip39;
 import 'package:bip32/bip32.dart' as bip32;
 import 'package:crypto/crypto.dart';
+import 'dart:typed_data';
 
 class KeyMaterial {
   final String mnemonic;
@@ -13,10 +14,11 @@ class KeyMaterial {
 }
 
 KeyMaterial deriveFromMnemonic(String? existing) {
-  final mnemonic = existing ?? bip39.generateMnemonic(strength: 128); // 12 words
+  final mnemonic =
+      existing ?? bip39.generateMnemonic(strength: 128); // 12 words
   final seed = bip39.mnemonicToSeed(mnemonic);
   // Derive BIP32 path m/44'/60'/0'/0/0 for EVM
-  final root = bip32.BIP32.fromSeed(_u8(seed));
+  final root = bip32.BIP32.fromSeed(Uint8List.fromList(seed));
   final child = root.derivePath("m/44'/60'/0'/0/0");
   final ecdsaPriv = child.privateKey!;
   // WOTS master via HKDF-SHA256 with domain separation
@@ -37,5 +39,3 @@ List<int> hkdfSha256(List<int> ikm, List<int> info, int len) {
   }
   return out.sublist(0, len);
 }
-
-List<int> _u8(List<int> a) => a;

@@ -1,8 +1,19 @@
+# smart-contracts/foundry.toml
 [profile.default]
-src = 'contracts'
-test = 'test'
-script = 'script'
-solc = '0.8.24'
+src = "src"
+test = "test"
+script = "script"
+out = "out"
+libs = ["lib"]
+
+# Explicit remapping so imports like `import "forge-std/Test.sol";` resolve.
+remappings = [
+  "forge-std/=lib/forge-std/src/"
+]
+
+# Nice-to-haves that won’t break anything
 optimizer = true
 optimizer_runs = 200
-evm_version = 'paris'
+solc_version = "0.8.24"
+evm_version = "paris"
+bytecode_hash = "none"

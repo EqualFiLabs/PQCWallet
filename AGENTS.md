@@ -98,7 +98,6 @@ Copy code
 
 ## Agent boundaries
 
-- Do not push to `main` directly → open PRs against `develop`
 - Do not add new dependencies without justification
 - Do not disable lints/tests
 - Do not remove license headers

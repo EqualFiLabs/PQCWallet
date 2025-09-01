@@ -3,7 +3,6 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:crypto/crypto.dart';
 import 'package:web3dart/web3dart.dart';
 import 'package:web3dart/crypto.dart' as w3;
 
@@ -29,7 +28,6 @@ class _PQCAppState extends State<PQCApp> {
   final storage = const FlutterSecureStorage();
   KeyMaterial? _keys;
   String _status = 'Ready';
-  BigInt _nonce = BigInt.zero;
 
   @override
   void initState() {
@@ -39,12 +37,15 @@ class _PQCAppState extends State<PQCApp> {
   }
 
   Future<void> _load() async {
-    final cfg = jsonDecode(await rootBundle.loadString('assets/config.example.json')) as Map<String, dynamic>;
+    final cfg =
+        jsonDecode(await rootBundle.loadString('assets/config.example.json'))
+            as Map<String, dynamic>;
     setState(() => _cfg = cfg);
     // Load or create mnemonic
     final existing = await storage.read(key: 'mnemonic');
     final km = deriveFromMnemonic(existing);
-    if (existing == null) await storage.write(key: 'mnemonic', value: km.mnemonic);
+    if (existing == null)
+      await storage.write(key: 'mnemonic', value: km.mnemonic);
     setState(() => _keys = km);
   }
 
@@ -56,7 +57,10 @@ class _PQCAppState extends State<PQCApp> {
         appBar: AppBar(title: const Text('EqualFi PQC Wallet (MVP)')),
         body: _cfg == null || _keys == null
             ? const Center(child: CircularProgressIndicator())
-            : _Body(cfg: _cfg!, keys: _keys!, setStatus: (s) => setState(() => _status = s)),
+            : _Body(
+                cfg: _cfg!,
+                keys: _keys!,
+                setStatus: (s) => setState(() => _status = s)),
         bottomNavigationBar: Container(
           padding: const EdgeInsets.all(12),
           child: Text(_status, textAlign: TextAlign.center),
@@ -91,13 +95,19 @@ class _BodyState extends State<_Body> {
         const SizedBox(height: 8),
         _Card(child: SelectableText('EntryPoint: ${widget.cfg['entryPoint']}')),
         const SizedBox(height: 16),
-        TextField(controller: recipientCtl, decoration: const InputDecoration(hintText: 'Recipient (0x...)')),
+        TextField(
+            controller: recipientCtl,
+            decoration: const InputDecoration(hintText: 'Recipient (0x...)')),
         const SizedBox(height: 8),
-        TextField(controller: amountCtl, decoration: const InputDecoration(hintText: 'Amount ETH')),
+        TextField(
+            controller: amountCtl,
+            decoration: const InputDecoration(hintText: 'Amount ETH')),
         const SizedBox(height: 12),
         Row(
           children: [
-            Expanded(child: ElevatedButton(onPressed: _sendEth, child: const Text('Send ETH (PQC)'))),
+            Expanded(
+                child: ElevatedButton(
+                    onPressed: _sendEth, child: const Text('Send ETH (PQC)'))),
           ],
         ),
       ],
@@ -110,14 +120,16 @@ class _BodyState extends State<_Body> {
       final wallet = EthereumAddress.fromHex(widget.cfg['walletAddress']);
       final entryPoint = EthereumAddress.fromHex(widget.cfg['entryPoint']);
       final to = EthereumAddress.fromHex(recipientCtl.text.trim());
-      final amountWei = EtherAmount.fromUnitAndValue(EtherUnit.ether, amountCtl.text.trim()).getInWei;
+      final amountWei =
+          EtherAmount.fromBase10String(EtherUnit.ether, amountCtl.text.trim())
+              .getInWei;
 
-      // callData = PQCWallet.execute(to, value, data="")
-      final executeSelector = w3.keccakUtf8('execute(address,uint256,bytes)').sublist(0, 4);
-      final enc = BytesBuilder();
-      enc.add(executeSelector);
-      enc.add(w3.abiEncode(['address','uint256','bytes'], [to, amountWei, Uint8List(0)]));
-      final callData = enc.toBytes();
+      const execute = ContractFunction('execute', [
+        FunctionParameter('to', AddressType()),
+        FunctionParameter('value', UintType()),
+        FunctionParameter('data', DynamicBytes()),
+      ]);
+      final callData = execute.encodeCall([to, amountWei, Uint8List(0)]);
 
       // Build userOp (gas fields filled after estimate)
       final op = UserOperation()
@@ -128,20 +140,31 @@ class _BodyState extends State<_Body> {
       // Estimate gas via bundler
       final gas = await bundler.estimateUserOpGas(op.toJson(), entryPoint.hex);
       op.callGasLimit = BigInt.parse(gas['callGasLimit'].toString());
-      op.verificationGasLimit = BigInt.parse(gas['verificationGasLimit'].toString());
-      op.preVerificationGas = BigInt.parse(gas['preVerificationGas'].toString());
+      op.verificationGasLimit =
+          BigInt.parse(gas['verificationGasLimit'].toString());
+      op.preVerificationGas =
+          BigInt.parse(gas['preVerificationGas'].toString());
 
       // Get userOpHash from EntryPoint via eth_call
       final userOpHash = await _getUserOpHash(entryPoint.hex, op);
       // ECDSA sign
-      final creds = EthPrivateKey(widget.keys.ecdsaPriv);
-      final eSig = await creds.sign(userOpHash, chainId: null); // raw 32-byte hash
+      final creds = EthPrivateKey(Uint8List.fromList(widget.keys.ecdsaPriv));
+      final sigBytes = await creds.signToUint8List(userOpHash,
+          chainId: null); // raw 32-byte hash
+      final eSig = w3.MsgSignature(
+        w3.bytesToInt(sigBytes.sublist(0, 32)),
+        w3.bytesToInt(sigBytes.sublist(32, 64)),
+        sigBytes[64],
+      );
       // WOTS sign/commit/nextCommit
-      final index = 0; // MVP demo uses nonce 0; in production track wallet.nonce via RPC
-      final seedI = hkdfIndex(Uint8List.fromList(widget.keys.wotsMaster), index);
+      final index =
+          0; // MVP demo uses nonce 0; in production track wallet.nonce via RPC
+      final seedI =
+          hkdfIndex(Uint8List.fromList(widget.keys.wotsMaster), index);
       final (sk, pk) = Wots.keygen(seedI);
       final wSig = Wots.sign(userOpHash, sk);
-      final nextSeed = hkdfIndex(Uint8List.fromList(widget.keys.wotsMaster), index + 1);
+      final nextSeed =
+          hkdfIndex(Uint8List.fromList(widget.keys.wotsMaster), index + 1);
       final (_, nextPk) = Wots.keygen(nextSeed);
       final nextCommit = Wots.commitPk(nextPk);
 
@@ -157,7 +180,8 @@ class _BodyState extends State<_Body> {
         await Future.delayed(const Duration(seconds: 2));
         final r = await bundler.getUserOperationReceipt(uoh);
         if (r != null) {
-          widget.setStatus('Inclusion tx: ${r['receipt']['transactionHash']} ✅');
+          widget
+              .setStatus('Inclusion tx: ${r['receipt']['transactionHash']} ✅');
           return;
         }
       }
@@ -169,35 +193,45 @@ class _BodyState extends State<_Body> {
 
   Future<Uint8List> _getUserOpHash(String entryPoint, UserOperation op) async {
     // Solidity selector: getUserOpHash((...))
-    final data = w3.hexToBytes('0x' +
-      w3.bytesToHex(w3.keccakUtf8('getUserOpHash((address,uint256,bytes,bytes,uint256,uint256,uint256,uint256,uint256,bytes,bytes))').sublist(0,4), include0x:false) +
-      w3.bytesToHex(
-        w3.abiEncode(
-          [
-            '(address,uint256,bytes,bytes,uint256,uint256,uint256,uint256,uint256,bytes,bytes)'
-          ],
-          [[
-            op.sender,
-            op.nonce,
-            op.initCode,
-            op.callData,
-            op.callGasLimit,
-            op.verificationGasLimit,
-            op.preVerificationGas,
-            op.maxFeePerGas,
-            op.maxPriorityFeePerGas,
-            op.paymasterAndData,
-            Uint8List(0) // signature ignored by getUserOpHash
-          ]],
-        ),
-        include0x:false
-      )
+    const userOpType = TupleType([
+      AddressType(),
+      UintType(),
+      DynamicBytes(),
+      DynamicBytes(),
+      UintType(),
+      UintType(),
+      UintType(),
+      UintType(),
+      UintType(),
+      DynamicBytes(),
+      DynamicBytes(),
+    ]);
+    const getUserOpHashFn = ContractFunction(
+      'getUserOpHash',
+      [FunctionParameter('op', userOpType)],
+      outputs: [FunctionParameter('', FixedBytes(32))],
     );
+    final data = getUserOpHashFn.encodeCall([
+      [
+        EthereumAddress.fromHex(op.sender),
+        op.nonce,
+        op.initCode,
+        op.callData,
+        op.callGasLimit,
+        op.verificationGasLimit,
+        op.preVerificationGas,
+        op.maxFeePerGas,
+        op.maxPriorityFeePerGas,
+        op.paymasterAndData,
+        Uint8List(0),
+      ]
+    ]);
     final payload = {
       'to': entryPoint,
-      'data': '0x${w3.bytesToHex(data, include0x:false)}'
+      'data': '0x${w3.bytesToHex(data, include0x: false)}'
     };
-    final res = await RpcClient(widget.cfg['rpcUrl']).call('eth_call', [payload, 'latest']);
+    final res = await RpcClient(widget.cfg['rpcUrl'])
+        .call('eth_call', [payload, 'latest']);
     return Uint8List.fromList(w3.hexToBytes(res.toString()));
   }
 }
@@ -208,7 +242,9 @@ class _Card extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      decoration: BoxDecoration(color: const Color(0x2211CDEF), borderRadius: BorderRadius.circular(16)),
+      decoration: BoxDecoration(
+          color: const Color(0x2211CDEF),
+          borderRadius: BorderRadius.circular(16)),
       padding: const EdgeInsets.all(12),
       child: child,
     );
