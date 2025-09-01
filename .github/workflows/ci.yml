@@ -8,6 +8,8 @@ jobs:
   contracts:
     name: Foundry project
     runs-on: ubuntu-latest
+    env:
+      FOUNDRY_DISABLE_NIGHTLY_WARNING: "1"
     defaults:
       run:
         working-directory: smart-contracts
@@ -24,8 +26,21 @@ jobs:
       - name: Show Forge version
         run: forge --version
 
-      - name: Install dependencies
-        run: forge install
+      # Belt AND suspenders to guarantee forge-std exists in CI
+      - name: Ensure forge-std present (remove dangling submodule, then install)
+        run: |
+          # If a submodule exists but isn't populated, it leaves an empty dir that fools us.
+          git submodule deinit -f -- lib/forge-std || true
+          rm -rf lib/forge-std
+          # Install a pinned version explicitly; foundry.toml deps will be honored for other libs.
+          forge install foundry-rs/forge-std@v1.9.5
+
+      - name: Verify forge-std
+        run: |
+          ls -la lib || true
+          ls -la lib/forge-std || true
+          test -f lib/forge-std/src/Test.sol
+          test -f lib/forge-std/src/Script.sol
 
       - name: Build and test
         run: |
@@ -41,18 +56,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-
       - name: Setup Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
           cache: true
-
       - name: Install dependencies
         run: flutter pub get
-
       - name: Analyze
         run: flutter analyze
-
       - name: Test
         run: flutter test
