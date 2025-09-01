@@ -6,7 +6,7 @@ on:
 
 jobs:
   contracts:
-    name: Foundry project
+    name: Smart Contracts
     runs-on: ubuntu-latest
     env:
       FOUNDRY_DISABLE_NIGHTLY_WARNING: "1"
