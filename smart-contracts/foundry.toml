@@ -1,6 +1,6 @@
 # smart-contracts/foundry.toml
 [profile.default]
-src = "src"
+src = "contracts"
 test = "test"
 script = "script"
 out = "out"
