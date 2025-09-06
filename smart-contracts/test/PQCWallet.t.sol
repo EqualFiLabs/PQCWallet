@@ -31,12 +31,16 @@ contract Target {
 contract PQCWalletTest is Test {
     using WOTS for bytes32;
 
+    event WOTSCommitmentsUpdated(bytes32 currentCommit, bytes32 nextCommit);
+
     DummyEntryPoint ep;
     PQCWallet wallet;
     Target target;
 
     address owner;
     uint256 ownerPk;
+    bytes32[67] sk;
+    bytes32[67] pk;
 
     function setUp() public {
         ep = new DummyEntryPoint();
@@ -44,7 +48,7 @@ contract PQCWalletTest is Test {
         (owner, ownerPk) = makeAddrAndKey("owner");
 
         bytes32 seed = keccak256("seed");
-        (, bytes32[67] memory pk) = WOTS.keygen(seed);
+        (sk, pk) = WOTS.keygen(seed);
         bytes32 commit = WOTS.commitPK(pk);
 
         wallet = new PQCWallet(IEntryPoint(address(ep)), owner, commit, keccak256("confirm"));
@@ -84,21 +88,48 @@ contract PQCWalletTest is Test {
         bytes memory eSig = abi.encodePacked(r, s, v);
 
         // WOTS
-        bytes32 seed = keccak256("seed");
-        (bytes32[67] memory sk, bytes32[67] memory pk) = WOTS.keygen(seed);
         bytes32[67] memory sig = WOTS.sign(userOpHash, sk);
         bytes32 confirmNext = keccak256("confirm");
         bytes32 proposeNext = keccak256("next");
         op.signature = _packSig(eSig, sig, pk, confirmNext, proposeNext);
 
+        vm.expectEmit(false, false, false, true, address(wallet));
+        emit WOTSCommitmentsUpdated(confirmNext, proposeNext);
         vm.prank(address(ep));
         wallet.validateUserOp(op, userOpHash, 0);
+
+        assertEq(wallet.currentPkCommit(), confirmNext);
+        assertEq(wallet.nextPkCommit(), proposeNext);
 
         vm.prank(address(ep));
         wallet.execute(address(target), 0, abi.encodeWithSelector(Target.setX.selector, 42));
 
         assertEq(target.x(), 42);
         assertEq(wallet.nonce(), 1);
+    }
+
+    function test_confirm_mismatch_reverts() public {
+        IEntryPoint.UserOperation memory op;
+        op.sender = address(wallet);
+        op.nonce = wallet.nonce();
+        op.callData = abi.encodeWithSelector(
+            PQCWallet.execute.selector, address(target), 0, abi.encodeWithSelector(Target.setX.selector, 42)
+        );
+
+        bytes32 userOpHash = ep.getUserOpHash(op);
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerPk, userOpHash);
+        bytes memory eSig = abi.encodePacked(r, s, v);
+
+        bytes32[67] memory sig = WOTS.sign(userOpHash, sk);
+
+        bytes32 confirmNext = keccak256("wrong");
+        bytes32 proposeNext = keccak256("next");
+        op.signature = _packSig(eSig, sig, pk, confirmNext, proposeNext);
+
+        vm.prank(address(ep));
+        vm.expectRevert(bytes("confirmNextCommit mismatch"));
+        wallet.validateUserOp(op, userOpHash, 0);
     }
 
     function test_batch() public {
@@ -122,8 +153,6 @@ contract PQCWalletTest is Test {
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerPk, userOpHash);
         bytes memory eSig = abi.encodePacked(r, s, v);
 
-        bytes32 seed = keccak256("seed");
-        (bytes32[67] memory sk, bytes32[67] memory pk) = WOTS.keygen(seed);
         bytes32[67] memory sig = WOTS.sign(userOpHash, sk);
 
         bytes32 confirmNext = keccak256("confirm");

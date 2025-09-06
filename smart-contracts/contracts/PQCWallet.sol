@@ -97,9 +97,8 @@ contract PQCWallet {
         require(WOTS.verify(userOpHash, wotsSig, wotsPk), "bad WOTS");
 
         // One-time rotation
-        require(confirmNextCommit == nextPkCommit, "confirm mismatch");
-        require(proposeNextCommit != bytes32(0), "propose commit required");
-        currentPkCommit = confirmNextCommit;
+        require(confirmNextCommit == nextPkCommit, "confirmNextCommit mismatch");
+        currentPkCommit = nextPkCommit;
         nextPkCommit = proposeNextCommit;
         emit WOTSCommitmentsUpdated(currentPkCommit, nextPkCommit);
 
