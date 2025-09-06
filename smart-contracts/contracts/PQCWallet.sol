@@ -18,6 +18,10 @@ contract PQCWallet {
 
     uint256 public nonce; // AA nonce; mirrors WOTS index
 
+    uint256 private constant _NOT_ENTERED = 1;
+    uint256 private constant _ENTERED = 2;
+    uint256 private _status = _NOT_ENTERED;
+
     event WOTSCommitmentsUpdated(bytes32 currentCommit, bytes32 nextCommit);
     event Executed(address target, uint256 value, bytes data);
     event ExecutedBatch(uint256 calls);
@@ -33,6 +37,7 @@ contract PQCWallet {
     /// @param _initialPkCommit Commitment to the initial WOTS public key.
     /// @param _nextPkCommit Optional pre-staged commitment for the next WOTS key.
     constructor(IEntryPoint _ep, address _owner, bytes32 _initialPkCommit, bytes32 _nextPkCommit) {
+        require(_owner != address(0), "owner zero");
         entryPoint = _ep;
         owner = _owner;
         currentPkCommit = _initialPkCommit;
@@ -65,6 +70,7 @@ contract PQCWallet {
         bytes32[67] memory wotsPk;
         bytes32 providedNextCommit;
 
+        // slither-disable-next-line assembly
         assembly {
             calldatacopy(add(ecdsaSig, 0x20), sig.offset, 65)
             let wotsSigPtr := add(sig.offset, 65)
@@ -103,7 +109,9 @@ contract PQCWallet {
     /// @param target Destination contract for the call.
     /// @param value ETH value to forward with the call.
     /// @param data Calldata to forward.
-    function execute(address target, uint256 value, bytes calldata data) external onlyEntryPoint {
+    function execute(address target, uint256 value, bytes calldata data) external onlyEntryPoint nonReentrant {
+        require(target != address(0), "target zero");
+        // slither-disable-next-line low-level-calls
         (bool ok, bytes memory ret) = target.call{value: value}(data);
         require(ok, _revertReason(ret));
         emit Executed(target, value, data);
@@ -113,9 +121,15 @@ contract PQCWallet {
     /// @param targets Destination contracts for each call.
     /// @param values ETH values to forward with each call.
     /// @param datas Calldata for each call.
-    function executeBatch(address[] calldata targets, uint256[] calldata values, bytes[] calldata datas) external onlyEntryPoint {
+    function executeBatch(address[] calldata targets, uint256[] calldata values, bytes[] calldata datas)
+        external
+        onlyEntryPoint
+        nonReentrant
+    {
         require(targets.length == values.length && targets.length == datas.length, "len mismatch");
         for (uint256 i = 0; i < targets.length; i++) {
+            require(targets[i] != address(0), "target zero");
+            // slither-disable-next-line calls-loop,low-level-calls
             (bool ok, bytes memory ret) = targets[i].call{value: values[i]}(datas[i]);
             require(ok, _revertReason(ret));
         }
@@ -142,6 +156,7 @@ contract PQCWallet {
     function _recover(bytes32 digest, bytes memory sig) internal pure returns (address) {
         require(sig.length == 65, "ecdsa len");
         bytes32 r; bytes32 s; uint8 v;
+        // slither-disable-next-line assembly
         assembly {
             r := mload(add(sig, 0x20))
             s := mload(add(sig, 0x40))
@@ -154,7 +169,15 @@ contract PQCWallet {
 
     function _revertReason(bytes memory ret) private pure returns (string memory) {
         if (ret.length < 68) return "call failed";
+        // slither-disable-next-line assembly
         assembly { ret := add(ret, 0x04) }
         return abi.decode(ret, (string));
+    }
+
+    modifier nonReentrant() {
+        require(_status != _ENTERED, "reentrant");
+        _status = _ENTERED;
+        _;
+        _status = _NOT_ENTERED;
     }
 }

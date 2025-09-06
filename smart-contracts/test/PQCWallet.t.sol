@@ -118,4 +118,43 @@ contract PQCWalletTest is Test {
         assertEq(target.x(), 2);
         assertEq(wallet.nonce(), 1);
     }
+
+    function test_gas_validateUserOp() public {
+        IEntryPoint.UserOperation memory op;
+        op.sender = address(wallet);
+        op.nonce = wallet.nonce();
+        op.callData = abi.encodeWithSelector(PQCWallet.execute.selector, address(target), 0, abi.encodeWithSelector(Target.setX.selector, 1));
+
+        bytes32 userOpHash = ep.getUserOpHash(op);
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerPk, userOpHash);
+        bytes memory eSig = abi.encodePacked(r, s, v);
+
+        bytes32 seed = keccak256("seed");
+        (bytes32[67] memory sk, bytes32[67] memory pk) = WOTS.keygen(seed);
+        bytes32[67] memory sig = WOTS.sign(userOpHash, sk);
+        bytes32 nextCommit = keccak256("next3");
+        op.signature = _packSig(eSig, sig, pk, nextCommit);
+
+        vm.prank(address(ep));
+        wallet.validateUserOp(op, userOpHash, 0);
+    }
+
+    function test_gas_execute() public {
+        vm.prank(address(ep));
+        wallet.execute(address(target), 0, abi.encodeWithSelector(Target.setX.selector, 5));
+    }
+
+    function test_gas_executeBatch() public {
+        address[] memory targets = new address[](2);
+        uint256[] memory values = new uint256[](2);
+        bytes[] memory datas = new bytes[](2);
+        targets[0] = address(target);
+        targets[1] = address(target);
+        datas[0] = abi.encodeWithSelector(Target.setX.selector, 7);
+        datas[1] = abi.encodeWithSelector(Target.setX.selector, 8);
+
+        vm.prank(address(ep));
+        wallet.executeBatch(targets, values, datas);
+    }
 }
