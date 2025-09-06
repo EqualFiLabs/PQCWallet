@@ -6,7 +6,8 @@ import 'package:web3dart/crypto.dart' as w3;
 Uint8List keccak(Uint8List b) => Uint8List.fromList(w3.keccakUtf8(hexNo0x(b)));
 String hexNo0x(Uint8List b) => w3.bytesToHex(b, include0x: false);
 
-/// Packs signature = ECDSA(65) || WOTSsig(67*32) || WOTSpk(67*32) || nextCommit(32)
+/// Packs signature =
+/// ECDSA(65) || WOTSsig(67*32) || WOTSpk(67*32) || confirmNextCommit(32) || proposeNextCommit(32)
 Uint8List _pad32(Uint8List b) {
   final out = Uint8List(32);
   out.setRange(32 - b.length, 32, b);
@@ -17,7 +18,8 @@ Uint8List packHybridSignature(
   w3.MsgSignature ecdsa,
   List<Uint8List> wotsSig,
   List<Uint8List> wotsPk,
-  Uint8List nextCommit,
+  Uint8List confirmNextCommit,
+  Uint8List proposeNextCommit,
 ) {
   final out = BytesBuilder();
   out.add(_pad32(w3.intToBytes(ecdsa.r)));
@@ -29,7 +31,8 @@ Uint8List packHybridSignature(
   for (final p in wotsPk) {
     out.add(p);
   }
-  out.add(nextCommit);
+  out.add(confirmNextCommit);
+  out.add(proposeNextCommit);
   return out.toBytes();
 }
 

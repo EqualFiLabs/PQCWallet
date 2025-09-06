@@ -166,10 +166,16 @@ class _BodyState extends State<_Body> {
       final nextSeed =
           hkdfIndex(Uint8List.fromList(widget.keys.wotsMaster), index + 1);
       final (_, nextPk) = Wots.keygen(nextSeed);
-      final nextCommit = Wots.commitPk(nextPk);
+      final confirmCommit = Wots.commitPk(nextPk);
+
+      final nextNextSeed =
+          hkdfIndex(Uint8List.fromList(widget.keys.wotsMaster), index + 2);
+      final (_, nextNextPk) = Wots.keygen(nextNextSeed);
+      final proposeCommit = Wots.commitPk(nextNextPk);
 
       // Pack signature
-      op.signature = packHybridSignature(eSig, wSig, pk, nextCommit);
+      op.signature =
+          packHybridSignature(eSig, wSig, pk, confirmCommit, proposeCommit);
 
       widget.setStatus('Submitting to bundler...');
       final uoh = await bundler.sendUserOperation(op.toJson(), entryPoint.hex);

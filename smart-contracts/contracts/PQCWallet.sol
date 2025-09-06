@@ -14,7 +14,7 @@ contract PQCWallet {
     address public immutable owner;
 
     bytes32 public currentPkCommit; // commit of current WOTS pk
-    bytes32 public nextPkCommit;    // optional pre-staged next commit (owner can set)
+    bytes32 public nextPkCommit; // optional pre-staged next commit (owner can set)
 
     uint256 public nonce; // AA nonce; mirrors WOTS index
 
@@ -45,12 +45,13 @@ contract PQCWallet {
         emit WOTSCommitmentsUpdated(_initialPkCommit, _nextPkCommit);
     }
 
-    /// @dev Signature packing (exact, no placeholders):
+    /// @dev 4417-byte signature packing (exact, no placeholders):
     ///   abi.encodePacked(
     ///       ecdsaSig[65],
     ///       wotsSig[67]*32,
     ///       wotsPk[67]*32,
-    ///       nextPkCommit[32]
+    ///       confirmNextCommit[32],
+    ///       proposeNextCommit[32]
     ///   )
     /// @notice Validates a user operation and rotates the WOTS commitment.
     /// @param userOp The user operation to validate.
@@ -63,12 +64,13 @@ contract PQCWallet {
         uint256 /*missingAccountFunds*/
     ) external onlyEntryPoint returns (uint256 validationData) {
         bytes calldata sig = userOp.signature;
-        require(sig.length == (65 + (32 * 67) + (32 * 67) + 32), "bad sig length");
+        require(sig.length == 4417, "sig length");
 
         bytes memory ecdsaSig = new bytes(65);
         bytes32[67] memory wotsSig;
         bytes32[67] memory wotsPk;
-        bytes32 providedNextCommit;
+        bytes32 confirmNextCommit;
+        bytes32 proposeNextCommit;
 
         // slither-disable-next-line assembly
         assembly {
@@ -77,8 +79,10 @@ contract PQCWallet {
             calldatacopy(wotsSig, wotsSigPtr, mul(32, 67))
             let wotsPkPtr := add(wotsSigPtr, mul(32, 67))
             calldatacopy(wotsPk, wotsPkPtr, mul(32, 67))
-            let nextPtr := add(wotsPkPtr, mul(32, 67))
-            providedNextCommit := calldataload(nextPtr)
+            let confirmPtr := add(wotsPkPtr, mul(32, 67))
+            confirmNextCommit := calldataload(confirmPtr)
+            let proposePtr := add(confirmPtr, 32)
+            proposeNextCommit := calldataload(proposePtr)
         }
 
         // ECDSA verification
@@ -93,9 +97,10 @@ contract PQCWallet {
         require(WOTS.verify(userOpHash, wotsSig, wotsPk), "bad WOTS");
 
         // One-time rotation
-        require(providedNextCommit != bytes32(0), "next commit required");
-        currentPkCommit = providedNextCommit;
-        nextPkCommit = bytes32(0);
+        require(confirmNextCommit == nextPkCommit, "confirm mismatch");
+        require(proposeNextCommit != bytes32(0), "propose commit required");
+        currentPkCommit = confirmNextCommit;
+        nextPkCommit = proposeNextCommit;
         emit WOTSCommitmentsUpdated(currentPkCommit, nextPkCommit);
 
         // Nonce
@@ -155,7 +160,9 @@ contract PQCWallet {
     // --------- internal helpers ----------
     function _recover(bytes32 digest, bytes memory sig) internal pure returns (address) {
         require(sig.length == 65, "ecdsa len");
-        bytes32 r; bytes32 s; uint8 v;
+        bytes32 r;
+        bytes32 s;
+        uint8 v;
         // slither-disable-next-line assembly
         assembly {
             r := mload(add(sig, 0x20))
@@ -170,7 +177,9 @@ contract PQCWallet {
     function _revertReason(bytes memory ret) private pure returns (string memory) {
         if (ret.length < 68) return "call failed";
         // slither-disable-next-line assembly
-        assembly { ret := add(ret, 0x04) }
+        assembly {
+            ret := add(ret, 0x04)
+        }
         return abi.decode(ret, (string));
     }
 

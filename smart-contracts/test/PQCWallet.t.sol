@@ -10,14 +10,22 @@ contract DummyEntryPoint is IEntryPoint {
     function getUserOpHash(UserOperation calldata userOp) external pure returns (bytes32) {
         return keccak256(abi.encode(userOp.sender, userOp.nonce, keccak256(userOp.callData)));
     }
+
     function depositTo(address) external payable {}
-    function balanceOf(address) external pure returns (uint256) { return 0; }
+
+    function balanceOf(address) external pure returns (uint256) {
+        return 0;
+    }
+
     function withdrawTo(address payable, uint256) external pure {}
 }
 
 contract Target {
     uint256 public x;
-    function setX(uint256 v) external { x = v; }
+
+    function setX(uint256 v) external {
+        x = v;
+    }
 }
 
 contract PQCWalletTest is Test {
@@ -39,16 +47,25 @@ contract PQCWalletTest is Test {
         (, bytes32[67] memory pk) = WOTS.keygen(seed);
         bytes32 commit = WOTS.commitPK(pk);
 
-        wallet = new PQCWallet(IEntryPoint(address(ep)), owner, commit, bytes32(0));
+        wallet = new PQCWallet(IEntryPoint(address(ep)), owner, commit, keccak256("confirm"));
     }
 
-    function _packSig(bytes memory ecdsaSig, bytes32[67] memory wotsSig, bytes32[67] memory wotsPk, bytes32 nextCommit)
-        internal pure returns (bytes memory out)
-    {
+    function _packSig(
+        bytes memory ecdsaSig,
+        bytes32[67] memory wotsSig,
+        bytes32[67] memory wotsPk,
+        bytes32 confirmNext,
+        bytes32 proposeNext
+    ) internal pure returns (bytes memory out) {
         out = abi.encodePacked(ecdsaSig);
-        for (uint256 i = 0; i < WOTS.L; i++) out = bytes.concat(out, wotsSig[i]);
-        for (uint256 i = 0; i < WOTS.L; i++) out = bytes.concat(out, wotsPk[i]);
-        out = bytes.concat(out, nextCommit);
+        for (uint256 i = 0; i < WOTS.L; i++) {
+            out = bytes.concat(out, wotsSig[i]);
+        }
+        for (uint256 i = 0; i < WOTS.L; i++) {
+            out = bytes.concat(out, wotsPk[i]);
+        }
+        out = bytes.concat(out, confirmNext);
+        out = bytes.concat(out, proposeNext);
     }
 
     function test_validate_execute() public {
@@ -56,7 +73,9 @@ contract PQCWalletTest is Test {
         IEntryPoint.UserOperation memory op;
         op.sender = address(wallet);
         op.nonce = wallet.nonce();
-        op.callData = abi.encodeWithSelector(PQCWallet.execute.selector, address(target), 0, abi.encodeWithSelector(Target.setX.selector, 42));
+        op.callData = abi.encodeWithSelector(
+            PQCWallet.execute.selector, address(target), 0, abi.encodeWithSelector(Target.setX.selector, 42)
+        );
 
         bytes32 userOpHash = ep.getUserOpHash(op);
 
@@ -68,8 +87,9 @@ contract PQCWalletTest is Test {
         bytes32 seed = keccak256("seed");
         (bytes32[67] memory sk, bytes32[67] memory pk) = WOTS.keygen(seed);
         bytes32[67] memory sig = WOTS.sign(userOpHash, sk);
-        bytes32 nextCommit = keccak256("next");
-        op.signature = _packSig(eSig, sig, pk, nextCommit);
+        bytes32 confirmNext = keccak256("confirm");
+        bytes32 proposeNext = keccak256("next");
+        op.signature = _packSig(eSig, sig, pk, confirmNext, proposeNext);
 
         vm.prank(address(ep));
         wallet.validateUserOp(op, userOpHash, 0);
@@ -106,8 +126,9 @@ contract PQCWalletTest is Test {
         (bytes32[67] memory sk, bytes32[67] memory pk) = WOTS.keygen(seed);
         bytes32[67] memory sig = WOTS.sign(userOpHash, sk);
 
-        bytes32 nextCommit = keccak256("next2");
-        op.signature = _packSig(eSig, sig, pk, nextCommit);
+        bytes32 confirmNext = keccak256("confirm");
+        bytes32 proposeNext = keccak256("next2");
+        op.signature = _packSig(eSig, sig, pk, confirmNext, proposeNext);
 
         vm.prank(address(ep));
         wallet.validateUserOp(op, userOpHash, 0);
@@ -123,7 +144,9 @@ contract PQCWalletTest is Test {
         IEntryPoint.UserOperation memory op;
         op.sender = address(wallet);
         op.nonce = wallet.nonce();
-        op.callData = abi.encodeWithSelector(PQCWallet.execute.selector, address(target), 0, abi.encodeWithSelector(Target.setX.selector, 1));
+        op.callData = abi.encodeWithSelector(
+            PQCWallet.execute.selector, address(target), 0, abi.encodeWithSelector(Target.setX.selector, 1)
+        );
 
         bytes32 userOpHash = ep.getUserOpHash(op);
 
@@ -133,8 +156,9 @@ contract PQCWalletTest is Test {
         bytes32 seed = keccak256("seed");
         (bytes32[67] memory sk, bytes32[67] memory pk) = WOTS.keygen(seed);
         bytes32[67] memory sig = WOTS.sign(userOpHash, sk);
-        bytes32 nextCommit = keccak256("next3");
-        op.signature = _packSig(eSig, sig, pk, nextCommit);
+        bytes32 confirmNext = keccak256("confirm");
+        bytes32 proposeNext = keccak256("next3");
+        op.signature = _packSig(eSig, sig, pk, confirmNext, proposeNext);
 
         vm.prank(address(ep));
         wallet.validateUserOp(op, userOpHash, 0);
