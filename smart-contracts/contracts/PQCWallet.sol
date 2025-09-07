@@ -18,7 +18,8 @@ contract PQCWallet {
     bytes32 public currentPkCommit; // commit of current WOTS pk
     bytes32 public nextPkCommit; // optional pre-staged next commit (owner can set)
 
-    uint256 public nonce; // AA nonce; mirrors WOTS index
+    /// @notice ERC-4337 nonce; also the WOTS index source.
+    uint256 public nonce;
 
     address public aggregator;
     address public verifier;

@@ -146,12 +146,38 @@ contract PQCWalletTest is Test {
 
         assertEq(wallet.currentPkCommit(), confirmNext);
         assertEq(wallet.nextPkCommit(), proposeNext);
+        assertEq(wallet.nonce(), 1);
 
         vm.prank(address(ep));
         wallet.execute(address(target), 0, abi.encodeWithSelector(Target.setX.selector, 42));
 
         assertEq(target.x(), 42);
         assertEq(wallet.nonce(), 1);
+    }
+
+    function test_nonce_mismatch_reverts_and_nonce_unchanged() public {
+        IEntryPoint.UserOperation memory op;
+        op.sender = address(wallet);
+        op.nonce = wallet.nonce() + 1;
+        op.callData = abi.encodeWithSelector(
+            PQCWallet.execute.selector, address(target), 0, abi.encodeWithSelector(Target.setX.selector, 42)
+        );
+
+        bytes32 userOpHash = ep.getUserOpHash(op);
+
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(ownerPk, userOpHash);
+        bytes memory eSig = abi.encodePacked(r, s, v);
+
+        bytes32[67] memory sig = WOTS.sign(userOpHash, sk);
+        bytes32 confirmNext = keccak256("confirm");
+        bytes32 proposeNext = keccak256("next");
+        op.signature = _packSig(eSig, sig, pk, confirmNext, proposeNext);
+
+        vm.prank(address(ep));
+        vm.expectRevert(bytes("bad nonce"));
+        wallet.validateUserOp(op, userOpHash, 0);
+
+        assertEq(wallet.nonce(), 0);
     }
 
     function test_confirm_mismatch_reverts() public {
