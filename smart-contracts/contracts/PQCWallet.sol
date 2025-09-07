@@ -20,6 +20,10 @@ contract PQCWallet {
 
     uint256 public nonce; // AA nonce; mirrors WOTS index
 
+    address public aggregator;
+    address public verifier;
+    bool public forceOnChainVerify = true;
+
     uint256 private constant _NOT_ENTERED = 1;
     uint256 private constant _ENTERED = 2;
     uint256 private _status = _NOT_ENTERED;
@@ -27,6 +31,9 @@ contract PQCWallet {
     event WOTSCommitmentsUpdated(bytes32 currentCommit, bytes32 nextCommit);
     event Executed(address target, uint256 value, bytes data);
     event ExecutedBatch(uint256 calls);
+    event AggregatorUpdated(address indexed aggregator);
+    event VerifierUpdated(address indexed verifier);
+    event ForceOnChainSet(bool enabled);
 
     modifier onlyEntryPoint() {
         require(msg.sender == address(entryPoint), "not entrypoint");
@@ -45,6 +52,12 @@ contract PQCWallet {
         currentPkCommit = _initialPkCommit;
         nextPkCommit = _nextPkCommit;
         emit WOTSCommitmentsUpdated(_initialPkCommit, _nextPkCommit);
+    }
+
+    /// @notice Return the aggregator if on-chain verify is disabled.
+    /// @return Aggregator address or zero when forceOnChainVerify is enabled.
+    function getAggregator() external view returns (address) {
+        return forceOnChainVerify ? address(0) : aggregator;
     }
 
     /// @dev 4417-byte signature packing (exact, no placeholders):
@@ -148,6 +161,30 @@ contract PQCWallet {
         require(msg.sender == owner, "not owner");
         nextPkCommit = nextCommit;
         emit WOTSCommitmentsUpdated(currentPkCommit, nextPkCommit);
+    }
+
+    /// @notice Set the aggregator contract used for off-chain validation.
+    /// @param _aggregator Address of the aggregator.
+    function setAggregator(address _aggregator) external {
+        require(msg.sender == owner, "not owner");
+        aggregator = _aggregator;
+        emit AggregatorUpdated(_aggregator);
+    }
+
+    /// @notice Set the verifier contract for aggregated signatures.
+    /// @param _verifier Address of the verifier contract.
+    function setVerifier(address _verifier) external {
+        require(msg.sender == owner, "not owner");
+        verifier = _verifier;
+        emit VerifierUpdated(_verifier);
+    }
+
+    /// @notice Enable or disable mandatory on-chain WOTS verification.
+    /// @param enabled Whether to force on-chain verification.
+    function setForceOnChainVerify(bool enabled) external {
+        require(msg.sender == owner, "not owner");
+        forceOnChainVerify = enabled;
+        emit ForceOnChainSet(enabled);
     }
 
     /// @notice Receive plain ETH transfers.

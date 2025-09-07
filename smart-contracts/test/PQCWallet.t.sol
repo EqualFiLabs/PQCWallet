@@ -32,6 +32,9 @@ contract PQCWalletTest is Test {
     using WOTS for bytes32;
 
     event WOTSCommitmentsUpdated(bytes32 currentCommit, bytes32 nextCommit);
+    event AggregatorUpdated(address indexed aggregator);
+    event VerifierUpdated(address indexed verifier);
+    event ForceOnChainSet(bool enabled);
 
     DummyEntryPoint ep;
     PQCWallet wallet;
@@ -70,6 +73,49 @@ contract PQCWalletTest is Test {
         }
         out = bytes.concat(out, confirmNext);
         out = bytes.concat(out, proposeNext);
+    }
+
+    function test_getAggregator_default_zero() public {
+        assertTrue(wallet.forceOnChainVerify());
+        assertEq(wallet.getAggregator(), address(0));
+    }
+
+    function test_setters_and_getAggregator() public {
+        address agg = address(0x1234);
+        address ver = address(0x5678);
+
+        vm.prank(owner);
+        vm.expectEmit(true, false, false, true, address(wallet));
+        emit AggregatorUpdated(agg);
+        wallet.setAggregator(agg);
+        assertEq(wallet.aggregator(), agg);
+
+        vm.prank(owner);
+        vm.expectEmit(true, false, false, true, address(wallet));
+        emit VerifierUpdated(ver);
+        wallet.setVerifier(ver);
+        assertEq(wallet.verifier(), ver);
+
+        vm.prank(owner);
+        vm.expectEmit(false, false, false, true, address(wallet));
+        emit ForceOnChainSet(false);
+        wallet.setForceOnChainVerify(false);
+        assertFalse(wallet.forceOnChainVerify());
+        assertEq(wallet.getAggregator(), agg);
+    }
+
+    function test_setters_only_owner() public {
+        vm.prank(address(0xdead));
+        vm.expectRevert(bytes("not owner"));
+        wallet.setAggregator(address(1));
+
+        vm.prank(address(0xdead));
+        vm.expectRevert(bytes("not owner"));
+        wallet.setVerifier(address(2));
+
+        vm.prank(address(0xdead));
+        vm.expectRevert(bytes("not owner"));
+        wallet.setForceOnChainVerify(false);
     }
 
     function test_validate_execute() public {
