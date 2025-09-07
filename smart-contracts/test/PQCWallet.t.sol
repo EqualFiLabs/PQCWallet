@@ -132,6 +132,55 @@ contract PQCWalletTest is Test {
         wallet.validateUserOp(op, userOpHash, 0);
     }
 
+    function test_reverts_on_bad_ecdsa_with_valid_wots() public {
+        IEntryPoint.UserOperation memory op;
+        op.sender = address(wallet);
+        op.nonce = wallet.nonce();
+        op.callData = abi.encodeWithSelector(
+            PQCWallet.execute.selector, address(target), 0, abi.encodeWithSelector(Target.setX.selector, 42)
+        );
+
+        bytes32 userOpHash = ep.getUserOpHash(op);
+
+        (address other, uint256 otherPk) = makeAddrAndKey("other");
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(otherPk, userOpHash);
+        bytes memory eSig = abi.encodePacked(r, s, v);
+
+        bytes32[67] memory sig = WOTS.sign(userOpHash, sk);
+        bytes32 confirmNext = keccak256("confirm");
+        bytes32 proposeNext = keccak256("next");
+        op.signature = _packSig(eSig, sig, pk, confirmNext, proposeNext);
+
+        vm.prank(address(ep));
+        vm.expectRevert(PQCWallet.BadECDSA.selector);
+        wallet.validateUserOp(op, userOpHash, 0);
+    }
+
+    function test_reverts_on_bad_ecdsa_even_with_bad_wots() public {
+        IEntryPoint.UserOperation memory op;
+        op.sender = address(wallet);
+        op.nonce = wallet.nonce();
+        op.callData = abi.encodeWithSelector(
+            PQCWallet.execute.selector, address(target), 0, abi.encodeWithSelector(Target.setX.selector, 42)
+        );
+
+        bytes32 userOpHash = ep.getUserOpHash(op);
+
+        (address other, uint256 otherPk) = makeAddrAndKey("other2");
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(otherPk, userOpHash);
+        bytes memory eSig = abi.encodePacked(r, s, v);
+
+        bytes32[67] memory badSig;
+        bytes32[67] memory badPk;
+        bytes32 confirmNext = keccak256("confirm");
+        bytes32 proposeNext = keccak256("next");
+        op.signature = _packSig(eSig, badSig, badPk, confirmNext, proposeNext);
+
+        vm.prank(address(ep));
+        vm.expectRevert(PQCWallet.BadECDSA.selector);
+        wallet.validateUserOp(op, userOpHash, 0);
+    }
+
     function test_batch() public {
         // two calls in a batch: setX(1) then setX(2)
         IEntryPoint.UserOperation memory op;

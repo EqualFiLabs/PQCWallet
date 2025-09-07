@@ -10,6 +10,8 @@ import {WOTS} from "./libs/WOTS.sol";
 contract PQCWallet {
     using WOTS for bytes32;
 
+    error BadECDSA();
+
     IEntryPoint public immutable entryPoint;
     address public immutable owner;
 
@@ -87,7 +89,7 @@ contract PQCWallet {
 
         // ECDSA verification
         address recovered = _recover(userOpHash, ecdsaSig);
-        require(recovered == owner, "bad ECDSA");
+        if (recovered != owner) revert BadECDSA();
 
         // WOTS commitment check
         bytes32 computedCommit = WOTS.commitPK(wotsPk);
