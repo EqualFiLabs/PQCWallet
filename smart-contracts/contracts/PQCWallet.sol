@@ -10,7 +10,12 @@ import {WOTS} from "./libs/WOTS.sol";
 contract PQCWallet {
     using WOTS for bytes32;
 
-    error BadECDSA();
+    error ECDSA_Invalid();
+    error PQC_CommitMismatch();
+    error NextCommit_ConfirmMismatch();
+    error Nonce_Invalid();
+    error NotOwner();
+    error Sig_Length();
 
     IEntryPoint public immutable entryPoint;
     address public immutable owner;
@@ -80,7 +85,7 @@ contract PQCWallet {
         uint256 /*missingAccountFunds*/
     ) external onlyEntryPoint returns (uint256 validationData) {
         bytes calldata sig = userOp.signature;
-        require(sig.length == 4417, "sig length");
+        if (sig.length != 4417) revert Sig_Length();
 
         bytes memory ecdsaSig = new bytes(65);
         bytes32[67] memory wotsSig;
@@ -103,23 +108,23 @@ contract PQCWallet {
 
         // ECDSA verification
         address recovered = _recover(userOpHash, ecdsaSig);
-        if (recovered != owner) revert BadECDSA();
+        if (recovered != owner) revert ECDSA_Invalid();
 
         // WOTS commitment check
         bytes32 computedCommit = WOTS.commitPK(wotsPk);
-        require(computedCommit == currentPkCommit, "WOTS pk mismatch");
+        if (computedCommit != currentPkCommit) revert PQC_CommitMismatch();
 
         // WOTS verification
         require(WOTS.verify(userOpHash, wotsSig, wotsPk), "bad WOTS");
 
         // One-time rotation
-        require(confirmNextCommit == nextPkCommit, "confirmNextCommit mismatch");
+        if (confirmNextCommit != nextPkCommit) revert NextCommit_ConfirmMismatch();
         currentPkCommit = nextPkCommit;
         nextPkCommit = proposeNextCommit;
         emit WOTSCommitmentsUpdated(currentPkCommit, nextPkCommit);
 
         // Nonce
-        require(userOp.nonce == nonce, "bad nonce");
+        if (userOp.nonce != nonce) revert Nonce_Invalid();
         nonce++;
 
         return 0; // valid
@@ -159,7 +164,7 @@ contract PQCWallet {
     /// @notice Owner convenience method to pre-stage the next WOTS commitment.
     /// @param nextCommit Commitment to the next WOTS public key.
     function setNextPkCommit(bytes32 nextCommit) external {
-        require(msg.sender == owner, "not owner");
+        if (msg.sender != owner) revert NotOwner();
         nextPkCommit = nextCommit;
         emit WOTSCommitmentsUpdated(currentPkCommit, nextPkCommit);
     }
@@ -167,7 +172,7 @@ contract PQCWallet {
     /// @notice Set the aggregator contract used for off-chain validation.
     /// @param _aggregator Address of the aggregator.
     function setAggregator(address _aggregator) external {
-        require(msg.sender == owner, "not owner");
+        if (msg.sender != owner) revert NotOwner();
         aggregator = _aggregator;
         emit AggregatorUpdated(_aggregator);
     }
@@ -175,7 +180,7 @@ contract PQCWallet {
     /// @notice Set the verifier contract for aggregated signatures.
     /// @param _verifier Address of the verifier contract.
     function setVerifier(address _verifier) external {
-        require(msg.sender == owner, "not owner");
+        if (msg.sender != owner) revert NotOwner();
         verifier = _verifier;
         emit VerifierUpdated(_verifier);
     }
@@ -183,7 +188,7 @@ contract PQCWallet {
     /// @notice Enable or disable mandatory on-chain WOTS verification.
     /// @param enabled Whether to force on-chain verification.
     function setForceOnChainVerify(bool enabled) external {
-        require(msg.sender == owner, "not owner");
+        if (msg.sender != owner) revert NotOwner();
         forceOnChainVerify = enabled;
         emit ForceOnChainSet(enabled);
     }
@@ -198,7 +203,7 @@ contract PQCWallet {
 
     // --------- internal helpers ----------
     function _recover(bytes32 digest, bytes memory sig) internal pure returns (address) {
-        require(sig.length == 65, "ecdsa len");
+        if (sig.length != 65) revert Sig_Length();
         bytes32 r;
         bytes32 s;
         uint8 v;
@@ -209,7 +214,7 @@ contract PQCWallet {
             v := byte(0, mload(add(sig, 0x60)))
         }
         if (v < 27) v += 27;
-        require(v == 27 || v == 28, "bad v");
+        if (v != 27 && v != 28) revert ECDSA_Invalid();
         return ecrecover(digest, v, r, s);
     }
 

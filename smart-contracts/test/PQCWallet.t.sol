@@ -106,15 +106,15 @@ contract PQCWalletTest is Test {
 
     function test_setters_only_owner() public {
         vm.prank(address(0xdead));
-        vm.expectRevert(bytes("not owner"));
+        vm.expectRevert(PQCWallet.NotOwner.selector);
         wallet.setAggregator(address(1));
 
         vm.prank(address(0xdead));
-        vm.expectRevert(bytes("not owner"));
+        vm.expectRevert(PQCWallet.NotOwner.selector);
         wallet.setVerifier(address(2));
 
         vm.prank(address(0xdead));
-        vm.expectRevert(bytes("not owner"));
+        vm.expectRevert(PQCWallet.NotOwner.selector);
         wallet.setForceOnChainVerify(false);
     }
 
@@ -174,7 +174,7 @@ contract PQCWalletTest is Test {
         op.signature = _packSig(eSig, sig, pk, confirmNext, proposeNext);
 
         vm.prank(address(ep));
-        vm.expectRevert(bytes("bad nonce"));
+        vm.expectRevert(PQCWallet.Nonce_Invalid.selector);
         wallet.validateUserOp(op, userOpHash, 0);
 
         assertEq(wallet.nonce(), 0);
@@ -200,7 +200,7 @@ contract PQCWalletTest is Test {
         op.signature = _packSig(eSig, sig, pk, confirmNext, proposeNext);
 
         vm.prank(address(ep));
-        vm.expectRevert(bytes("confirmNextCommit mismatch"));
+        vm.expectRevert(PQCWallet.NextCommit_ConfirmMismatch.selector);
         wallet.validateUserOp(op, userOpHash, 0);
     }
 
@@ -224,7 +224,7 @@ contract PQCWalletTest is Test {
         op.signature = _packSig(eSig, sig, pk, confirmNext, proposeNext);
 
         vm.prank(address(ep));
-        vm.expectRevert(PQCWallet.BadECDSA.selector);
+        vm.expectRevert(PQCWallet.ECDSA_Invalid.selector);
         wallet.validateUserOp(op, userOpHash, 0);
     }
 
@@ -249,7 +249,7 @@ contract PQCWalletTest is Test {
         op.signature = _packSig(eSig, badSig, badPk, confirmNext, proposeNext);
 
         vm.prank(address(ep));
-        vm.expectRevert(PQCWallet.BadECDSA.selector);
+        vm.expectRevert(PQCWallet.ECDSA_Invalid.selector);
         wallet.validateUserOp(op, userOpHash, 0);
     }
 
