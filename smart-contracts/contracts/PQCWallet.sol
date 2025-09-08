@@ -201,6 +201,12 @@ contract PQCWallet {
         entryPoint.depositTo{value: msg.value}(address(this));
     }
 
+    /// @notice Get this wallet's deposit in the EntryPoint.
+    /// @return amount The current deposit balance held by the EntryPoint.
+    function balanceOfEntryPoint() external view returns (uint256 amount) {
+        amount = entryPoint.balanceOf(address(this));
+    }
+
     // --------- internal helpers ----------
     function _recover(bytes32 digest, bytes memory sig) internal pure returns (address) {
         if (sig.length != 65) revert Sig_Length();

@@ -7,17 +7,23 @@ import {PQCWallet} from "../contracts/PQCWallet.sol";
 import {WOTS} from "../contracts/libs/WOTS.sol";
 
 contract DummyEntryPoint is IEntryPoint {
+    mapping(address => uint256) public balances;
+
     function getUserOpHash(UserOperation calldata userOp) external pure returns (bytes32) {
         return keccak256(abi.encode(userOp.sender, userOp.nonce, keccak256(userOp.callData)));
     }
 
-    function depositTo(address) external payable {}
-
-    function balanceOf(address) external pure returns (uint256) {
-        return 0;
+    function depositTo(address account) external payable {
+        balances[account] += msg.value;
     }
 
-    function withdrawTo(address payable, uint256) external pure {}
+    function balanceOf(address account) external view returns (uint256) {
+        return balances[account];
+    }
+
+    function withdrawTo(address payable, uint256 amount) external {
+        balances[msg.sender] -= amount;
+    }
 }
 
 contract Target {
@@ -55,6 +61,14 @@ contract PQCWalletTest is Test {
         bytes32 commit = WOTS.commitPK(pk);
 
         wallet = new PQCWallet(IEntryPoint(address(ep)), owner, commit, keccak256("confirm"));
+    }
+
+    function test_deposit_and_balanceOfEntryPoint() public {
+        assertEq(wallet.balanceOfEntryPoint(), 0);
+        vm.deal(address(this), 1 ether);
+        wallet.depositToEntryPoint{value: 1 ether}();
+        assertEq(wallet.balanceOfEntryPoint(), 1 ether);
+        assertEq(ep.balanceOf(address(wallet)), 1 ether);
     }
 
     function _packSig(
