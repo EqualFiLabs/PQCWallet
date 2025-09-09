@@ -5,23 +5,25 @@ pragma solidity ^0.8.24;
 /// @notice PQ-conservative, EVM-friendly (sha256). Used for Track A1.
 ///         Public key = 67 * 32B; Signature = 67 * 32B; Message digest = 32B.
 library WOTS {
-    uint256 internal constant N = 32;     // bytes per element
-    uint256 internal constant W = 16;     // winternitz parameter
-    uint256 internal constant L1 = 64;    // 256 bits / log2(16)
-    uint256 internal constant L2 = 3;     // ceil(log_16(960)) = 3
-    uint256 constant L  = L1 + L2;
+    uint256 internal constant N = 32; // bytes per element
+    uint256 internal constant W = 16; // winternitz parameter
+    uint256 internal constant L1 = 64; // 256 bits / log2(16)
+    uint256 internal constant L2 = 3; // ceil(log_16(960)) = 3
+    uint256 constant L = L1 + L2;
 
     function messageDigits(bytes32 msgHash) internal pure returns (uint8[L] memory digits) {
         for (uint256 i = 0; i < 32; i++) {
             uint8 b = uint8(msgHash[i]);
-            digits[2*i]   = b >> 4;
-            digits[2*i+1] = b & 0x0f;
+            digits[2 * i] = b >> 4;
+            digits[2 * i + 1] = b & 0x0f;
         }
         uint256 csum = 0;
-        for (uint256 i = 0; i < L1; i++) csum += (W - 1) - digits[i];
-        digits[L1]   = uint8((csum >> 8) & 0x0f);
-        digits[L1+1] = uint8((csum >> 4) & 0x0f);
-        digits[L1+2] = uint8( csum       & 0x0f);
+        for (uint256 i = 0; i < L1; i++) {
+            csum += (W - 1) - digits[i];
+        }
+        digits[L1] = uint8((csum >> 8) & 0x0f);
+        digits[L1 + 1] = uint8((csum >> 4) & 0x0f);
+        digits[L1 + 2] = uint8(csum & 0x0f);
         return digits;
     }
 
@@ -42,8 +44,12 @@ library WOTS {
         return true;
     }
 
+    /// @notice Hashes a full WOTS public key to a single commitment.
+    /// @dev Concatenates all 67 elements then applies SHA-256.
+    /// @param pk The WOTS public key array.
+    /// @return Commitment as a bytes32 digest.
     function commitPK(bytes32[L] memory pk) internal pure returns (bytes32) {
-        return keccak256(abi.encodePacked(pk));
+        return sha256(abi.encodePacked(pk));
     }
 
     // ---------- Deterministic helpers for local tests/demos ----------
@@ -52,7 +58,9 @@ library WOTS {
             for (uint256 i = 0; i < L; i++) {
                 sk[i] = keccak256(abi.encodePacked(seed, uint32(i)));
                 bytes32 v = sk[i];
-                for (uint256 j = 0; j < W - 1; j++) v = _F(v);
+                for (uint256 j = 0; j < W - 1; j++) {
+                    v = _F(v);
+                }
                 pk[i] = v;
             }
         }
@@ -63,7 +71,9 @@ library WOTS {
         for (uint256 i = 0; i < L; i++) {
             uint256 steps = d[i];
             bytes32 v = sk[i];
-            for (uint256 j = 0; j < steps; j++) v = _F(v);
+            for (uint256 j = 0; j < steps; j++) {
+                v = _F(v);
+            }
             sig[i] = v;
         }
     }
