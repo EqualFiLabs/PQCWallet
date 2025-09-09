@@ -23,3 +23,13 @@ class RpcClient {
     return json['result'];
   }
 }
+
+extension RpcView on RpcClient {
+  /// Calls a contract view function with `to` and `data` (hex string with 0x).
+  Future<String> callViewHex(String to, String dataHex) async {
+    final payload = {'to': to, 'data': dataHex};
+    final res = await call('eth_call', [payload, 'latest']);
+    // Result is a hex string (0x...)
+    return res.toString();
+  }
+}

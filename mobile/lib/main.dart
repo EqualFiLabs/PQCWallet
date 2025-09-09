@@ -4,6 +4,15 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:web3dart/web3dart.dart';
+import 'package:web3dart/contracts.dart'
+    show
+        ContractFunction,
+        FunctionParameter,
+        UintType,
+        FixedBytes,
+        AddressType,
+        DynamicBytes,
+        TupleType;
 import 'package:web3dart/crypto.dart' as w3;
 
 import 'theme/theme.dart';
@@ -124,7 +133,7 @@ class _BodyState extends State<_Body> {
 
   Future<void> _sendEth() async {
     try {
-      widget.setStatus('Building UserOp...');
+      widget.setStatus('Reading wallet state...');
       final wallet = EthereumAddress.fromHex(widget.cfg['walletAddress']);
       final entryPoint = EthereumAddress.fromHex(widget.cfg['entryPoint']);
       final to = EthereumAddress.fromHex(recipientCtl.text.trim());
@@ -132,6 +141,71 @@ class _BodyState extends State<_Body> {
           EtherAmount.fromBase10String(EtherUnit.ether, amountCtl.text.trim())
               .getInWei;
 
+      // 0) Prepare function ABIs for view calls
+      const fnNonce = ContractFunction(
+        'nonce',
+        [],
+        outputs: [FunctionParameter('', UintType())],
+      );
+
+      const fnCurrent = ContractFunction(
+        'currentPkCommit',
+        [],
+        outputs: [FunctionParameter('', FixedBytes(32))],
+      );
+
+      const fnNext = ContractFunction(
+        'nextPkCommit',
+        [],
+        outputs: [FunctionParameter('', FixedBytes(32))],
+      );
+
+      final dataNonce = fnNonce.encodeCall(const []);
+      final dataCur = fnCurrent.encodeCall(const []);
+      final dataNext = fnNext.encodeCall(const []);
+
+      // 1) Read on-chain state via eth_call
+      final nonceHex = await rpc.callViewHex(
+        wallet.hex,
+        '0x${w3.bytesToHex(dataNonce, include0x: false)}',
+      );
+      final curHex = await rpc.callViewHex(
+        wallet.hex,
+        '0x${w3.bytesToHex(dataCur, include0x: false)}',
+      );
+      final nextHex = await rpc.callViewHex(
+        wallet.hex,
+        '0x${w3.bytesToHex(dataNext, include0x: false)}',
+      );
+
+      // 2) Decode results
+      BigInt parseHexBigInt(String h) {
+        final s = h.startsWith('0x') ? h.substring(2) : h;
+        return s.isEmpty ? BigInt.zero : BigInt.parse(s, radix: 16);
+      }
+
+      Uint8List parseHex32(String h) {
+        final b = w3.hexToBytes(h);
+        if (b.length == 32) return Uint8List.fromList(b);
+        if (b.length > 32) return Uint8List.fromList(b.sublist(b.length - 32));
+        final out = Uint8List(32);
+        out.setRange(32 - b.length, 32, b);
+        return out;
+      }
+
+      final nonceOnChain = parseHexBigInt(nonceHex);
+      final currentCommitOnChain = parseHex32(curHex);
+      final nextCommitOnChain = parseHex32(nextHex);
+
+      // 3) Log the reads to the UI
+      widget.setStatus([
+        'Read wallet state:',
+        '- nonce: ${nonceOnChain.toString()}',
+        '- currentPkCommit: ${w3.bytesToHex(currentCommitOnChain, include0x: true)}',
+        '- nextPkCommit: ${w3.bytesToHex(nextCommitOnChain, include0x: true)}',
+      ].join('\n'));
+
+      // 4) Prepare callData as before
       const execute = ContractFunction('execute', [
         FunctionParameter('to', AddressType()),
         FunctionParameter('value', UintType()),
@@ -139,13 +213,13 @@ class _BodyState extends State<_Body> {
       ]);
       final callData = execute.encodeCall([to, amountWei, Uint8List(0)]);
 
-      // Build userOp (gas fields filled after estimate)
+      // 5) Build userOp with real nonce
       final op = UserOperation()
         ..sender = wallet.hex
-        ..nonce = BigInt.zero
+        ..nonce = nonceOnChain
         ..callData = callData;
 
-      // Estimate gas via bundler
+      // 6) Estimate gas via bundler
       final gas = await bundler.estimateUserOpGas(op.toJson(), entryPoint.hex);
       op.callGasLimit = BigInt.parse(gas['callGasLimit'].toString());
       op.verificationGasLimit =
@@ -153,7 +227,7 @@ class _BodyState extends State<_Body> {
       op.preVerificationGas =
           BigInt.parse(gas['preVerificationGas'].toString());
 
-      // Get userOpHash from EntryPoint via eth_call
+      // 7) Get userOpHash from EntryPoint via eth_call
       final userOpHash = await _getUserOpHash(entryPoint.hex, op);
       // ECDSA sign
       final creds = EthPrivateKey(Uint8List.fromList(widget.keys.ecdsaPriv));
@@ -164,24 +238,24 @@ class _BodyState extends State<_Body> {
         w3.bytesToInt(sigBytes.sublist(32, 64)),
         sigBytes[64],
       );
-      // WOTS sign/commit/nextCommit
-      final index =
-          0; // MVP demo uses nonce 0; in production track wallet.nonce via RPC
+
+      // 8) WOTS indices/keys anchored to nonce()
+      final index = nonceOnChain.toInt();
       final seedI =
           hkdfIndex(Uint8List.fromList(widget.keys.wotsMaster), index);
       final (sk, pk) = Wots.keygen(seedI);
       final wSig = Wots.sign(userOpHash, sk);
-      final nextSeed =
-          hkdfIndex(Uint8List.fromList(widget.keys.wotsMaster), index + 1);
-      final (_, nextPk) = Wots.keygen(nextSeed);
-      final confirmCommit = Wots.commitPk(nextPk);
 
+      // We DO NOT recompute confirm for "next"; we confirm on-chain next
+      final confirmCommit = nextCommitOnChain;
+
+      // propose commitment for index+2
       final nextNextSeed =
           hkdfIndex(Uint8List.fromList(widget.keys.wotsMaster), index + 2);
       final (_, nextNextPk) = Wots.keygen(nextNextSeed);
       final proposeCommit = Wots.commitPk(nextNextPk);
 
-      // Pack signature
+      // 9) Pack hybrid signature
       op.signature =
           packHybridSignature(eSig, wSig, pk, confirmCommit, proposeCommit);
 
