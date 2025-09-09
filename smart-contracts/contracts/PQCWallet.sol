@@ -2,6 +2,7 @@
 pragma solidity ^0.8.24;
 
 import {IEntryPoint} from "./interfaces/IEntryPoint.sol";
+import {IWalletAggregator} from "./interfaces/IWalletAggregator.sol";
 import {WOTS} from "./libs/WOTS.sol";
 
 /// @title PQCWallet: ERC-4337 smart account (Hybrid ECDSA + WOTS)
@@ -140,6 +141,11 @@ contract PQCWallet {
         bytes32 userOpHash,
         uint256 /*missingAccountFunds*/
     ) external onlyEntryPoint returns (uint256 validationData) {
+        if (!forceOnChainVerify && aggregator != address(0)) {
+            IWalletAggregator(aggregator).validateUserOp(userOp, userOpHash);
+            return 0;
+        }
+
         bytes calldata sig = userOp.signature;
         require(sig.length == SIG_LEN, "sig length");
 
