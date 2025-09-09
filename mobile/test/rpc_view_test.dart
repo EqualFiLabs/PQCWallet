@@ -12,11 +12,8 @@ void main() {
       final body = await utf8.decoder.bind(request).join();
       final json = jsonDecode(body) as Map<String, dynamic>;
       expect(json['method'], 'eth_call');
-      final response = jsonEncode({
-        'jsonrpc': '2.0',
-        'id': json['id'],
-        'result': '0xdeadbeef'
-      });
+      final response = jsonEncode(
+          {'jsonrpc': '2.0', 'id': json['id'], 'result': '0xdeadbeef'});
       request.response
         ..statusCode = 200
         ..headers.contentType = ContentType.json

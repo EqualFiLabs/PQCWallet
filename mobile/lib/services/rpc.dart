@@ -12,7 +12,8 @@ class RpcClient {
       'method': method,
       'params': params ?? [],
     });
-    final res = await http.post(Uri.parse(url), headers: {'Content-Type': 'application/json'}, body: body);
+    final res = await http.post(Uri.parse(url),
+        headers: {'Content-Type': 'application/json'}, body: body);
     if (res.statusCode != 200) {
       throw Exception('RPC ${res.statusCode}: ${res.body}');
     }
