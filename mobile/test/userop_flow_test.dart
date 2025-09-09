@@ -33,6 +33,17 @@ class MockRpc extends RpcClient {
           return '0x' + '11' * 32;
       }
     }
+    if (method == 'eth_feeHistory') {
+      return {
+        'baseFeePerGas': ['0x1', '0x1'],
+        'reward': [
+          ['0x1']
+        ]
+      };
+    }
+    if (method == 'eth_maxPriorityFeePerGas') {
+      return '0x1';
+    }
     throw UnimplementedError();
   }
 }
@@ -81,6 +92,7 @@ void main() {
       amountWei: BigInt.one,
       settings: const AppSettings(),
       log: logs.add,
+      selectFees: (f) async => f,
     );
     final first = logs.last;
     logs.clear();
@@ -91,6 +103,7 @@ void main() {
       amountWei: BigInt.one,
       settings: const AppSettings(),
       log: logs.add,
+      selectFees: (f) async => f,
     );
     final second = logs.last;
     expect(first.contains('decision: fresh'), isTrue);

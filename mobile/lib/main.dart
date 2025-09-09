@@ -12,6 +12,7 @@ import 'services/storage.dart';
 import 'userop/userop_flow.dart';
 import 'state/settings.dart';
 import 'ui/settings_screen.dart';
+import 'ui/send_sheet.dart';
 
 void main() => runApp(const PQCApp());
 
@@ -186,6 +187,7 @@ class _BodyState extends State<_Body> {
         amountWei: amountWei,
         settings: widget.settings,
         log: widget.setStatus,
+        selectFees: (f) => showFeeSheet(context, f),
       );
 
       widget.setStatus('Sent. UserOpHash: $uoh (waiting for receipt...)');

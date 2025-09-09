@@ -8,6 +8,8 @@ import '../services/bundler_client.dart';
 import '../services/rpc.dart';
 import '../services/storage.dart';
 import '../services/biometric.dart';
+import '../services/entrypoint.dart';
+import '../state/fees.dart';
 import '../state/settings.dart';
 import '../userop/userop.dart';
 import '../userop/userop_signer.dart';
@@ -26,6 +28,7 @@ class UserOpFlow {
     required BigInt amountWei,
     required AppSettings settings,
     required void Function(String) log,
+    required Future<FeeState?> Function(FeeState) selectFees,
   }) async {
     final chainId = cfg['chainId'] as int;
     final wallet = EthereumAddress.fromHex(cfg['walletAddress']);
@@ -82,7 +85,47 @@ class UserOpFlow {
         BigInt.parse(gas['verificationGasLimit'].toString());
     op.preVerificationGas = BigInt.parse(gas['preVerificationGas'].toString());
 
-    final userOpHash = await _getUserOpHash(entryPoint.hex, op);
+    final fh = await rpc.feeHistory(5, [50]);
+    final baseFees = (fh['baseFeePerGas'] as List)
+        .map((h) => BigInt.parse(h.toString().substring(2), radix: 16))
+        .toList();
+    final baseFee = baseFees.isNotEmpty ? baseFees.last : BigInt.zero;
+
+    BigInt priority = BigInt.zero;
+    final rewards = fh['reward'] as List?;
+    if (rewards != null && rewards.isNotEmpty) {
+      final lastRewards = (rewards.last as List).cast<String>();
+      if (lastRewards.isNotEmpty) {
+        priority = BigInt.parse(lastRewards.first.substring(2), radix: 16);
+      }
+    }
+    if (priority == BigInt.zero) {
+      priority = await rpc.maxPriorityFeePerGas();
+    }
+    final suggestedMaxFee = baseFee + priority;
+
+    var fees = FeeState(
+      baseFee: baseFee,
+      prioritySuggestion: priority,
+      maxFeePerGas: suggestedMaxFee,
+      maxPriorityFeePerGas: priority,
+      preVerificationGas: op.preVerificationGas,
+      verificationGasLimit: op.verificationGasLimit,
+      callGasLimit: op.callGasLimit,
+      bundlerFeeWei: BigInt.zero,
+    );
+
+    final chosen = await selectFees(fees);
+    if (chosen == null) {
+      throw Exception('fee-canceled');
+    }
+    fees = chosen;
+
+    op.maxFeePerGas = fees.maxFeePerGas;
+    op.maxPriorityFeePerGas = fees.maxPriorityFeePerGas;
+
+    final ep = EntryPointService(rpc, entryPoint);
+    final userOpHash = await ep.getUserOpHash(op);
     final userOpHashHex = '0x${w3.bytesToHex(userOpHash, include0x: false)}';
 
     final mustAuth = settings.requireBiometricForChain(chainId);
@@ -193,46 +236,6 @@ class UserOpFlow {
       await store.save(chainId, wallet.hex, record);
     }
     return uoh;
-  }
-
-  Future<Uint8List> _getUserOpHash(String entryPoint, UserOperation op) async {
-    const userOpType = TupleType([
-      AddressType(),
-      UintType(),
-      DynamicBytes(),
-      DynamicBytes(),
-      UintType(),
-      UintType(),
-      UintType(),
-      UintType(),
-      UintType(),
-      DynamicBytes(),
-      DynamicBytes(),
-    ]);
-    const getUserOpHashFn = ContractFunction(
-        'getUserOpHash', [FunctionParameter('op', userOpType)],
-        outputs: [FunctionParameter('', FixedBytes(32))]);
-    final data = getUserOpHashFn.encodeCall([
-      [
-        EthereumAddress.fromHex(op.sender),
-        op.nonce,
-        op.initCode,
-        op.callData,
-        op.callGasLimit,
-        op.verificationGasLimit,
-        op.preVerificationGas,
-        op.maxFeePerGas,
-        op.maxPriorityFeePerGas,
-        op.paymasterAndData,
-        Uint8List(0),
-      ]
-    ]);
-    final payload = {
-      'to': entryPoint,
-      'data': '0x${w3.bytesToHex(data, include0x: false)}'
-    };
-    final res = await rpc.call('eth_call', [payload, 'latest']);
-    return Uint8List.fromList(w3.hexToBytes(res.toString()));
   }
 
   Uint8List _encodeExecute(EthereumAddress to, BigInt value) {
