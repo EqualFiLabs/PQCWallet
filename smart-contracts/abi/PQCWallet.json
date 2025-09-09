@@ -44,6 +44,19 @@
   },
   {
     "type": "function",
+    "name": "balanceOfEntryPoint",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "amount",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "currentPkCommit",
     "inputs": [],
     "outputs": [
@@ -61,19 +74,6 @@
     "inputs": [],
     "outputs": [],
     "stateMutability": "payable"
-  },
-  {
-    "type": "function",
-    "name": "balanceOfEntryPoint",
-    "inputs": [],
-    "outputs": [
-      {
-        "name": "",
-        "type": "uint256",
-        "internalType": "uint256"
-      }
-    ],
-    "stateMutability": "view"
   },
   {
     "type": "function",
@@ -448,7 +448,32 @@
   },
   {
     "type": "error",
-    "name": "BadECDSA",
+    "name": "ECDSA_Invalid",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NextCommit_ConfirmMismatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "Nonce_Invalid",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "NotOwner",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "PQC_CommitMismatch",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "Sig_Length",
     "inputs": []
   }
 ]

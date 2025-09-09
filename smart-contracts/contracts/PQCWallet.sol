@@ -17,28 +17,59 @@ contract PQCWallet {
     error NotOwner();
     error Sig_Length();
 
+    /// @notice Canonical ERC-4337 EntryPoint used by this wallet.
     IEntryPoint public immutable entryPoint;
+
+    /// @notice ECDSA owner controlling the wallet.
     address public immutable owner;
 
-    bytes32 public currentPkCommit; // commit of current WOTS pk
-    bytes32 public nextPkCommit; // optional pre-staged next commit (owner can set)
+    /// @notice Commitment to the current WOTS public key.
+    bytes32 public currentPkCommit;
+
+    /// @notice Optional pre-staged commitment for the next WOTS key.
+    bytes32 public nextPkCommit;
 
     /// @notice ERC-4337 nonce; also the WOTS index source.
     uint256 public nonce;
 
+    /// @notice Aggregator contract used for off-chain validation when enabled.
     address public aggregator;
+
+    /// @notice Verifier contract validating aggregated signatures.
     address public verifier;
+
+    /// @notice Enforces on-chain WOTS verification when true.
     bool public forceOnChainVerify = true;
 
     uint256 private constant _NOT_ENTERED = 1;
     uint256 private constant _ENTERED = 2;
     uint256 private _status = _NOT_ENTERED;
 
+    /// @notice Emitted when WOTS commitments are rotated or staged.
+    /// @param currentCommit Commitment to the current WOTS public key.
+    /// @param nextCommit Commitment to the next WOTS public key.
     event WOTSCommitmentsUpdated(bytes32 currentCommit, bytes32 nextCommit);
+
+    /// @notice Emitted after a single call is executed.
+    /// @param target Destination contract for the call.
+    /// @param value ETH value forwarded with the call.
+    /// @param data Calldata forwarded.
     event Executed(address target, uint256 value, bytes data);
+
+    /// @notice Emitted after a batch of calls is executed.
+    /// @param calls Number of calls executed.
     event ExecutedBatch(uint256 calls);
+
+    /// @notice Emitted when the aggregator is updated.
+    /// @param aggregator Address of the new aggregator.
     event AggregatorUpdated(address indexed aggregator);
+
+    /// @notice Emitted when the verifier contract is updated.
+    /// @param verifier Address of the new verifier contract.
     event VerifierUpdated(address indexed verifier);
+
+    /// @notice Emitted when on-chain verification requirement changes.
+    /// @param enabled Whether on-chain verification is now enforced.
     event ForceOnChainSet(bool enabled);
 
     modifier onlyEntryPoint() {
