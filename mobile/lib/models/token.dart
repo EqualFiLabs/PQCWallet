@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:flutter/services.dart' show rootBundle;
 
 class ChainTokens {
@@ -34,7 +35,12 @@ class ChainTokens {
   int chainIdBaseSepolia() => (raw['chainIds']['baseSepolia'] as num).toInt();
 
   static Future<ChainTokens> load() async {
-    final s = await rootBundle.loadString('assets/tokens.base.json');
-    return ChainTokens(jsonDecode(s) as Map<String, dynamic>);
+    try {
+      final s = await rootBundle.loadString('assets/tokens.base.json');
+      return ChainTokens(jsonDecode(s) as Map<String, dynamic>);
+    } catch (_) {
+      final s = await File('assets/tokens.base.json').readAsString();
+      return ChainTokens(jsonDecode(s) as Map<String, dynamic>);
+    }
   }
 }
