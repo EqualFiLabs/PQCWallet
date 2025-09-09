@@ -68,7 +68,7 @@ contract PQCWalletHybridSigTest is Test {
         bytes memory legacy = _mkBytes(LEGACY_LEN_NO_COMMITS, 0x11);
         IEntryPoint.UserOperation memory op = _mkUserOp(legacy);
         vm.prank(address(ep));
-        vm.expectRevert(bytes("sig length"));
+        vm.expectRevert(PQCWallet.Sig_Length.selector);
         wallet.validateUserOp(op, bytes32(0), 0);
     }
 
@@ -76,7 +76,7 @@ contract PQCWalletHybridSigTest is Test {
         bytes memory legacy = _mkBytes(LEGACY_LEN_ONE_COMMIT, 0x22);
         IEntryPoint.UserOperation memory op = _mkUserOp(legacy);
         vm.prank(address(ep));
-        vm.expectRevert(bytes("sig length"));
+        vm.expectRevert(PQCWallet.Sig_Length.selector);
         wallet.validateUserOp(op, bytes32(0), 0);
     }
 

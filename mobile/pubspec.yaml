@@ -15,7 +15,9 @@ dependencies:
   bip32: ^2.0.0
   crypto: ^3.0.3
   flutter_secure_storage: ^9.0.0
+  local_auth: ^2.3.0
   collection: ^1.18.0
+  shared_preferences: ^2.2.2
 
 dev_dependencies:
   flutter_test:
@@ -26,3 +28,4 @@ flutter:
   uses-material-design: true
   assets:
     - assets/config.example.json
+    - assets/tokens.base.json

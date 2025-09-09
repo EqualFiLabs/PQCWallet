@@ -47,6 +47,9 @@ jobs:
           forge build
           forge test -vv
 
+      - name: Gas snapshot
+        run: forge snapshot
+
   mobile:
     runs-on: ubuntu-latest
     defaults:

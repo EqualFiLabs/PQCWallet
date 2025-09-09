@@ -1,18 +1,22 @@
 import 'dart:convert';
-import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:web3dart/web3dart.dart';
-import 'package:web3dart/crypto.dart' as w3;
 
 import 'theme/theme.dart';
 import 'services/rpc.dart';
 import 'services/bundler_client.dart';
 import 'crypto/mnemonic.dart';
-import 'crypto/wots.dart';
-import 'userop/userop.dart';
-import 'userop/userop_signer.dart';
+import 'services/storage.dart';
+import 'userop/userop_flow.dart';
+import 'state/settings.dart';
+import 'ui/settings_screen.dart';
+import 'ui/send_sheet.dart';
+import 'models/activity.dart';
+import 'services/activity_store.dart';
+import 'services/activity_poller.dart';
+import 'ui/activity_feed.dart';
 
 void main() => runApp(const PQCApp());
 
@@ -28,6 +32,8 @@ class _PQCAppState extends State<PQCApp> {
   final storage = const FlutterSecureStorage();
   KeyMaterial? _keys;
   String _status = 'Ready';
+  AppSettings _settings = const AppSettings();
+  final SettingsStore _settingsStore = SettingsStore();
 
   @override
   void initState() {
@@ -46,7 +52,21 @@ class _PQCAppState extends State<PQCApp> {
     final km = deriveFromMnemonic(existing);
     if (existing == null)
       await storage.write(key: 'mnemonic', value: km.mnemonic);
-    setState(() => _keys = km);
+    final s = await _settingsStore.load();
+    setState(() {
+      _keys = km;
+      _settings = s;
+    });
+  }
+
+  Future<void> _openSettings() async {
+    await Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => SettingsScreen(
+              settings: _settings,
+              store: _settingsStore,
+            )));
+    final s = await _settingsStore.load();
+    setState(() => _settings = s);
   }
 
   @override
@@ -54,12 +74,19 @@ class _PQCAppState extends State<PQCApp> {
     return MaterialApp(
       theme: _theme,
       home: Scaffold(
-        appBar: AppBar(title: const Text('EqualFi PQC Wallet (MVP)')),
+        appBar: AppBar(
+          title: const Text('EqualFi PQC Wallet (MVP)'),
+          actions: [
+            IconButton(
+                onPressed: _openSettings, icon: const Icon(Icons.settings))
+          ],
+        ),
         body: _cfg == null || _keys == null
             ? const Center(child: CircularProgressIndicator())
             : _Body(
                 cfg: _cfg!,
                 keys: _keys!,
+                settings: _settings,
                 setStatus: (s) => setState(() => _status = s)),
         bottomNavigationBar: Container(
           padding: const EdgeInsets.all(12),
@@ -73,8 +100,14 @@ class _PQCAppState extends State<PQCApp> {
 class _Body extends StatefulWidget {
   final Map<String, dynamic> cfg;
   final KeyMaterial keys;
+  final AppSettings settings;
   final void Function(String) setStatus;
-  const _Body({required this.cfg, required this.keys, required this.setStatus});
+  const _Body({
+    required this.cfg,
+    required this.keys,
+    required this.settings,
+    required this.setStatus,
+  });
 
   @override
   State<_Body> createState() => _BodyState();
@@ -85,15 +118,46 @@ class _BodyState extends State<_Body> {
   late final bundler = BundlerClient(widget.cfg['bundlerUrl']);
   final recipientCtl = TextEditingController();
   final amountCtl = TextEditingController(text: '0.001');
+  final PendingIndexStore pendingStore = PendingIndexStore();
+  final ActivityStore activityStore = ActivityStore();
+  late final ActivityPoller activityPoller;
+
+  @override
+  void initState() {
+    super.initState();
+    activityStore.load();
+    activityPoller = ActivityPoller(store: activityStore, rpc: rpc, bundler: bundler);
+    activityPoller.start();
+  }
+
+  @override
+  void dispose() {
+    activityPoller.stop();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        SizedBox(height: 200, child: ActivityFeed(store: activityStore)),
+        const SizedBox(height: 16),
+        _Card(child: SelectableText('ChainId: ${widget.cfg['chainId']}')),
+        const SizedBox(height: 8),
         _Card(child: SelectableText('Wallet: ${widget.cfg['walletAddress']}')),
         const SizedBox(height: 8),
         _Card(child: SelectableText('EntryPoint: ${widget.cfg['entryPoint']}')),
+        const SizedBox(height: 8),
+        _Card(child: SelectableText('Aggregator: ${widget.cfg['aggregator']}')),
+        const SizedBox(height: 8),
+        _Card(
+            child: SelectableText(
+                'ProverRegistry: ${widget.cfg['proverRegistry']}')),
+        const SizedBox(height: 8),
+        _Card(
+            child: SelectableText(
+                'ForceOnChainVerify: ${widget.cfg['forceOnChainVerify']}')),
         const SizedBox(height: 16),
         TextField(
             controller: recipientCtl,
@@ -110,82 +174,63 @@ class _BodyState extends State<_Body> {
                     onPressed: _sendEth, child: const Text('Send ETH (PQC)'))),
           ],
         ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+                child: ElevatedButton(
+                    onPressed: _showPending,
+                    child: const Text('Show Pending'))),
+            const SizedBox(width: 8),
+            Expanded(
+                child: ElevatedButton(
+                    onPressed: _clearPending,
+                    child: const Text('Clear Pending'))),
+          ],
+        ),
       ],
     );
   }
 
   Future<void> _sendEth() async {
     try {
-      widget.setStatus('Building UserOp...');
+      widget.setStatus('Reading wallet state...');
       final wallet = EthereumAddress.fromHex(widget.cfg['walletAddress']);
-      final entryPoint = EthereumAddress.fromHex(widget.cfg['entryPoint']);
       final to = EthereumAddress.fromHex(recipientCtl.text.trim());
+      final amtStr = amountCtl.text.trim();
       final amountWei =
-          EtherAmount.fromBase10String(EtherUnit.ether, amountCtl.text.trim())
-              .getInWei;
+          EtherAmount.fromBase10String(EtherUnit.ether, amtStr).getInWei;
 
-      const execute = ContractFunction('execute', [
-        FunctionParameter('to', AddressType()),
-        FunctionParameter('value', UintType()),
-        FunctionParameter('data', DynamicBytes()),
-      ]);
-      final callData = execute.encodeCall([to, amountWei, Uint8List(0)]);
-
-      // Build userOp (gas fields filled after estimate)
-      final op = UserOperation()
-        ..sender = wallet.hex
-        ..nonce = BigInt.zero
-        ..callData = callData;
-
-      // Estimate gas via bundler
-      final gas = await bundler.estimateUserOpGas(op.toJson(), entryPoint.hex);
-      op.callGasLimit = BigInt.parse(gas['callGasLimit'].toString());
-      op.verificationGasLimit =
-          BigInt.parse(gas['verificationGasLimit'].toString());
-      op.preVerificationGas =
-          BigInt.parse(gas['preVerificationGas'].toString());
-
-      // Get userOpHash from EntryPoint via eth_call
-      final userOpHash = await _getUserOpHash(entryPoint.hex, op);
-      // ECDSA sign
-      final creds = EthPrivateKey(Uint8List.fromList(widget.keys.ecdsaPriv));
-      final sigBytes = await creds.signToUint8List(userOpHash,
-          chainId: null); // raw 32-byte hash
-      final eSig = w3.MsgSignature(
-        w3.bytesToInt(sigBytes.sublist(0, 32)),
-        w3.bytesToInt(sigBytes.sublist(32, 64)),
-        sigBytes[64],
+      final flow = UserOpFlow(rpc: rpc, bundler: bundler, store: pendingStore);
+      final uoh = await flow.sendEth(
+        cfg: widget.cfg,
+        keys: widget.keys,
+        to: to,
+        amountWei: amountWei,
+        settings: widget.settings,
+        log: widget.setStatus,
+        selectFees: (f) => showFeeSheet(context, f),
       );
-      // WOTS sign/commit/nextCommit
-      final index =
-          0; // MVP demo uses nonce 0; in production track wallet.nonce via RPC
-      final seedI =
-          hkdfIndex(Uint8List.fromList(widget.keys.wotsMaster), index);
-      final (sk, pk) = Wots.keygen(seedI);
-      final wSig = Wots.sign(userOpHash, sk);
-      final nextSeed =
-          hkdfIndex(Uint8List.fromList(widget.keys.wotsMaster), index + 1);
-      final (_, nextPk) = Wots.keygen(nextSeed);
-      final confirmCommit = Wots.commitPk(nextPk);
 
-      final nextNextSeed =
-          hkdfIndex(Uint8List.fromList(widget.keys.wotsMaster), index + 2);
-      final (_, nextNextPk) = Wots.keygen(nextNextSeed);
-      final proposeCommit = Wots.commitPk(nextNextPk);
+      await activityStore.upsertByUserOpHash(uoh, (existing) =>
+          existing?.copyWith(status: ActivityStatus.sent) ??
+          ActivityItem(
+            userOpHash: uoh,
+            to: to.hex,
+            display: '$amtStr ETH',
+            ts: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+            status: ActivityStatus.sent,
+            chainId: widget.cfg['chainId'],
+            opKind: 'eth',
+          ));
 
-      // Pack signature
-      op.signature =
-          packHybridSignature(eSig, wSig, pk, confirmCommit, proposeCommit);
-
-      widget.setStatus('Submitting to bundler...');
-      final uoh = await bundler.sendUserOperation(op.toJson(), entryPoint.hex);
       widget.setStatus('Sent. UserOpHash: $uoh (waiting for receipt...)');
 
-      // Poll for receipt
       for (int i = 0; i < 30; i++) {
         await Future.delayed(const Duration(seconds: 2));
         final r = await bundler.getUserOperationReceipt(uoh);
         if (r != null) {
+          await pendingStore.clear(widget.cfg['chainId'], wallet.hex);
           widget
               .setStatus('Inclusion tx: ${r['receipt']['transactionHash']} ✅');
           return;
@@ -197,48 +242,20 @@ class _BodyState extends State<_Body> {
     }
   }
 
-  Future<Uint8List> _getUserOpHash(String entryPoint, UserOperation op) async {
-    // Solidity selector: getUserOpHash((...))
-    const userOpType = TupleType([
-      AddressType(),
-      UintType(),
-      DynamicBytes(),
-      DynamicBytes(),
-      UintType(),
-      UintType(),
-      UintType(),
-      UintType(),
-      UintType(),
-      DynamicBytes(),
-      DynamicBytes(),
-    ]);
-    const getUserOpHashFn = ContractFunction(
-      'getUserOpHash',
-      [FunctionParameter('op', userOpType)],
-      outputs: [FunctionParameter('', FixedBytes(32))],
-    );
-    final data = getUserOpHashFn.encodeCall([
-      [
-        EthereumAddress.fromHex(op.sender),
-        op.nonce,
-        op.initCode,
-        op.callData,
-        op.callGasLimit,
-        op.verificationGasLimit,
-        op.preVerificationGas,
-        op.maxFeePerGas,
-        op.maxPriorityFeePerGas,
-        op.paymasterAndData,
-        Uint8List(0),
-      ]
-    ]);
-    final payload = {
-      'to': entryPoint,
-      'data': '0x${w3.bytesToHex(data, include0x: false)}'
-    };
-    final res = await RpcClient(widget.cfg['rpcUrl'])
-        .call('eth_call', [payload, 'latest']);
-    return Uint8List.fromList(w3.hexToBytes(res.toString()));
+  Future<void> _showPending() async {
+    final wallet = EthereumAddress.fromHex(widget.cfg['walletAddress']);
+    final chainId = widget.cfg['chainId'];
+    final pending = await pendingStore.load(chainId, wallet.hex);
+    widget.setStatus(pending == null
+        ? 'No pending record'
+        : const JsonEncoder.withIndent('  ').convert(pending));
+  }
+
+  Future<void> _clearPending() async {
+    final wallet = EthereumAddress.fromHex(widget.cfg['walletAddress']);
+    final chainId = widget.cfg['chainId'];
+    await pendingStore.clear(chainId, wallet.hex);
+    widget.setStatus('pendingIndex cleared (canceled by user).');
   }
 }
 

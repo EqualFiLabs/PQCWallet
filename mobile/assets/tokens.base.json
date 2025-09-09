@@ -1,0 +1,38 @@
+{
+  "chainIds": {
+    "base": 8453,
+    "baseSepolia": 84532
+  },
+  "tokens": [
+    {
+      "symbol": "USDC",
+      "name": "USD Coin",
+      "decimals": 6,
+      "addresses": {
+        "8453": "0x833589FCD6EDB6E08f4f06f8f219cA9a4ba62F14",
+        "84532": "0x5Fd55A1d8DDD313dFa9e5cEdc7A9389C9D75C3b0"
+      },
+      "features": {
+        "erc2612": false,
+        "permit2": true
+      }
+    },
+    {
+      "symbol": "WETH",
+      "name": "Wrapped Ether",
+      "decimals": 18,
+      "addresses": {
+        "8453": "0x4200000000000000000000000000000000000006",
+        "84532": "0x4200000000000000000000000000000000000006"
+      },
+      "features": {
+        "erc2612": false,
+        "permit2": false
+      }
+    }
+  ],
+  "permit2": {
+    "8453": "0x000000000022D473030F116dDEE9F6B43aC78BA3",
+    "84532": "0x000000000022D473030F116dDEE9F6B43aC78BA3"
+  }
+}

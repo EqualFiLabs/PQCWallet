@@ -5,7 +5,8 @@ import 'package:pqc_wallet/crypto/wots.dart';
 
 void main() {
   test('WOTS sign-commit-verify consistency', () {
-    final msg = Uint8List.fromList(sha256.convert(Uint8List.fromList([1,2,3])).bytes);
+    final msg =
+        Uint8List.fromList(sha256.convert(Uint8List.fromList([1, 2, 3])).bytes);
     final seed = Uint8List.fromList(List.filled(32, 7));
     final (sk, pk) = Wots.keygen(seed);
     final sig = Wots.sign(msg, sk);

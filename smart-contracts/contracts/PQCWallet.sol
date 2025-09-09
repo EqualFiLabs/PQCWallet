@@ -10,21 +10,67 @@ import {WOTS} from "./libs/WOTS.sol";
 contract PQCWallet {
     using WOTS for bytes32;
 
+    error ECDSA_Invalid();
+    error PQC_CommitMismatch();
+    error NextCommit_ConfirmMismatch();
+    error Nonce_Invalid();
+    error NotOwner();
+    error Sig_Length();
+
+    /// @notice Canonical ERC-4337 EntryPoint used by this wallet.
     IEntryPoint public immutable entryPoint;
+
+    /// @notice ECDSA owner controlling the wallet.
     address public immutable owner;
 
-    bytes32 public currentPkCommit; // commit of current WOTS pk
-    bytes32 public nextPkCommit; // optional pre-staged next commit (owner can set)
+    /// @notice Commitment to the current WOTS public key.
+    bytes32 public currentPkCommit;
 
-    uint256 public nonce; // AA nonce; mirrors WOTS index
+    /// @notice Optional pre-staged commitment for the next WOTS key.
+    bytes32 public nextPkCommit;
+
+    /// @notice ERC-4337 nonce; also the WOTS index source.
+    uint256 public nonce;
+
+    /// @notice Aggregator contract used for off-chain validation when enabled.
+    address public aggregator;
+
+    /// @notice Verifier contract validating aggregated signatures.
+    address public verifier;
+
+    /// @notice Enforces on-chain WOTS verification when true.
+    bool public forceOnChainVerify = true;
 
     uint256 private constant _NOT_ENTERED = 1;
     uint256 private constant _ENTERED = 2;
     uint256 private _status = _NOT_ENTERED;
 
+    /// @notice Emitted when WOTS commitments are rotated or staged.
+    /// @param currentCommit Commitment to the current WOTS public key.
+    /// @param nextCommit Commitment to the next WOTS public key.
     event WOTSCommitmentsUpdated(bytes32 currentCommit, bytes32 nextCommit);
+
+    /// @notice Emitted after a single call is executed.
+    /// @param target Destination contract for the call.
+    /// @param value ETH value forwarded with the call.
+    /// @param data Calldata forwarded.
     event Executed(address target, uint256 value, bytes data);
+
+    /// @notice Emitted after a batch of calls is executed.
+    /// @param calls Number of calls executed.
     event ExecutedBatch(uint256 calls);
+
+    /// @notice Emitted when the aggregator is updated.
+    /// @param aggregator Address of the new aggregator.
+    event AggregatorUpdated(address indexed aggregator);
+
+    /// @notice Emitted when the verifier contract is updated.
+    /// @param verifier Address of the new verifier contract.
+    event VerifierUpdated(address indexed verifier);
+
+    /// @notice Emitted when on-chain verification requirement changes.
+    /// @param enabled Whether on-chain verification is now enforced.
+    event ForceOnChainSet(bool enabled);
 
     modifier onlyEntryPoint() {
         require(msg.sender == address(entryPoint), "not entrypoint");
@@ -43,6 +89,12 @@ contract PQCWallet {
         currentPkCommit = _initialPkCommit;
         nextPkCommit = _nextPkCommit;
         emit WOTSCommitmentsUpdated(_initialPkCommit, _nextPkCommit);
+    }
+
+    /// @notice Return the aggregator if on-chain verify is disabled.
+    /// @return Aggregator address or zero when forceOnChainVerify is enabled.
+    function getAggregator() external view returns (address) {
+        return forceOnChainVerify ? address(0) : aggregator;
     }
 
     /// @dev 4417-byte signature packing (exact, no placeholders):
@@ -64,7 +116,7 @@ contract PQCWallet {
         uint256 /*missingAccountFunds*/
     ) external onlyEntryPoint returns (uint256 validationData) {
         bytes calldata sig = userOp.signature;
-        require(sig.length == 4417, "sig length");
+        if (sig.length != 4417) revert Sig_Length();
 
         bytes memory ecdsaSig = new bytes(65);
         bytes32[67] memory wotsSig;
@@ -87,24 +139,23 @@ contract PQCWallet {
 
         // ECDSA verification
         address recovered = _recover(userOpHash, ecdsaSig);
-        require(recovered == owner, "bad ECDSA");
+        if (recovered != owner) revert ECDSA_Invalid();
 
         // WOTS commitment check
         bytes32 computedCommit = WOTS.commitPK(wotsPk);
-        require(computedCommit == currentPkCommit, "WOTS pk mismatch");
+        if (computedCommit != currentPkCommit) revert PQC_CommitMismatch();
 
         // WOTS verification
         require(WOTS.verify(userOpHash, wotsSig, wotsPk), "bad WOTS");
 
         // One-time rotation
-        require(confirmNextCommit == nextPkCommit, "confirm mismatch");
-        require(proposeNextCommit != bytes32(0), "propose commit required");
-        currentPkCommit = confirmNextCommit;
+        if (confirmNextCommit != nextPkCommit) revert NextCommit_ConfirmMismatch();
+        currentPkCommit = nextPkCommit;
         nextPkCommit = proposeNextCommit;
         emit WOTSCommitmentsUpdated(currentPkCommit, nextPkCommit);
 
         // Nonce
-        require(userOp.nonce == nonce, "bad nonce");
+        if (userOp.nonce != nonce) revert Nonce_Invalid();
         nonce++;
 
         return 0; // valid
@@ -144,9 +195,33 @@ contract PQCWallet {
     /// @notice Owner convenience method to pre-stage the next WOTS commitment.
     /// @param nextCommit Commitment to the next WOTS public key.
     function setNextPkCommit(bytes32 nextCommit) external {
-        require(msg.sender == owner, "not owner");
+        if (msg.sender != owner) revert NotOwner();
         nextPkCommit = nextCommit;
         emit WOTSCommitmentsUpdated(currentPkCommit, nextPkCommit);
+    }
+
+    /// @notice Set the aggregator contract used for off-chain validation.
+    /// @param _aggregator Address of the aggregator.
+    function setAggregator(address _aggregator) external {
+        if (msg.sender != owner) revert NotOwner();
+        aggregator = _aggregator;
+        emit AggregatorUpdated(_aggregator);
+    }
+
+    /// @notice Set the verifier contract for aggregated signatures.
+    /// @param _verifier Address of the verifier contract.
+    function setVerifier(address _verifier) external {
+        if (msg.sender != owner) revert NotOwner();
+        verifier = _verifier;
+        emit VerifierUpdated(_verifier);
+    }
+
+    /// @notice Enable or disable mandatory on-chain WOTS verification.
+    /// @param enabled Whether to force on-chain verification.
+    function setForceOnChainVerify(bool enabled) external {
+        if (msg.sender != owner) revert NotOwner();
+        forceOnChainVerify = enabled;
+        emit ForceOnChainSet(enabled);
     }
 
     /// @notice Receive plain ETH transfers.
@@ -157,9 +232,15 @@ contract PQCWallet {
         entryPoint.depositTo{value: msg.value}(address(this));
     }
 
+    /// @notice Get this wallet's deposit in the EntryPoint.
+    /// @return amount The current deposit balance held by the EntryPoint.
+    function balanceOfEntryPoint() external view returns (uint256 amount) {
+        amount = entryPoint.balanceOf(address(this));
+    }
+
     // --------- internal helpers ----------
     function _recover(bytes32 digest, bytes memory sig) internal pure returns (address) {
-        require(sig.length == 65, "ecdsa len");
+        if (sig.length != 65) revert Sig_Length();
         bytes32 r;
         bytes32 s;
         uint8 v;
@@ -170,7 +251,7 @@ contract PQCWallet {
             v := byte(0, mload(add(sig, 0x60)))
         }
         if (v < 27) v += 27;
-        require(v == 27 || v == 28, "bad v");
+        if (v != 27 && v != 28) revert ECDSA_Invalid();
         return ecrecover(digest, v, r, s);
     }
 

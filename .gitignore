@@ -14,3 +14,5 @@
  cache/
 
  mobile/assets/config.json
+ mobile/.dart_tool/
+ mobile/.flutter-plugins-dependencies
