@@ -45,6 +45,17 @@ contract PQCWallet {
     uint256 private constant _ENTERED = 2;
     uint256 private _status = _NOT_ENTERED;
 
+    uint256 public constant SIG_LEN = 4417;
+    uint256 public constant ECDSA_LEN = 65;
+    uint256 public constant WOTS_SEG_LEN = 67 * 32; // 2144
+
+    // Parser offsets
+    uint256 public constant ECDSA_OFF = 0;
+    uint256 public constant WOTS_SIG_OFF = ECDSA_OFF + ECDSA_LEN;
+    uint256 public constant WOTS_PK_OFF = WOTS_SIG_OFF + WOTS_SEG_LEN;
+    uint256 public constant CONFIRM_OFF = WOTS_PK_OFF + WOTS_SEG_LEN;
+    uint256 public constant PROPOSE_OFF = CONFIRM_OFF + 32;
+
     /// @notice Emitted when WOTS commitments are rotated or staged.
     /// @param currentCommit Commitment to the current WOTS public key.
     /// @param nextCommit Commitment to the next WOTS public key.
@@ -70,7 +81,7 @@ contract PQCWallet {
 
     /// @notice Emitted when on-chain verification requirement changes.
     /// @param enabled Whether on-chain verification is now enforced.
-    event ForceOnChainSet(bool enabled);
+    event ForceOnChainVerifySet(bool enabled);
 
     modifier onlyEntryPoint() {
         require(msg.sender == address(entryPoint), "not entrypoint");
@@ -97,28 +108,42 @@ contract PQCWallet {
         return forceOnChainVerify ? address(0) : aggregator;
     }
 
-    /// @dev 4417-byte signature packing (exact, no placeholders):
-    ///   abi.encodePacked(
-    ///       ecdsaSig[65],
-    ///       wotsSig[67]*32,
-    ///       wotsPk[67]*32,
-    ///       confirmNextCommit[32],
-    ///       proposeNextCommit[32]
-    ///   )
-    /// @notice Validates a user operation and rotates the WOTS commitment.
-    /// @param userOp The user operation to validate.
-    /// @param userOpHash Hash of the user operation.
-    /// @param /*missingAccountFunds*/ Ignored funds parameter required by EntryPoint.
-    /// @return validationData Zero on success, otherwise packed validation data.
+    /**
+     * @dev Signature format (strict, 4417 bytes total):
+     * ecdsaSig(65) ||
+     * wotsSig(67*32 = 2144) ||
+     * wotsPk(67*32 = 2144) ||
+     * confirmNextCommit(32) ||
+     * proposeNextCommit(32)
+     *
+     * Layout (byte offsets):
+     * ECDSA:             [0..64]
+     * WOTS sig:          [65..2208]   // 2144 bytes
+     * WOTS pk:           [2209..4352] // 2144 bytes
+     * confirmNextCommit: [4353..4384] // 32 bytes
+     * proposeNextCommit: [4385..4416] // 32 bytes
+     *
+     * Verification:
+     * - WOTS+ is verified over `userOpHash` (canonical AA digest).
+     * - On success, rotation is atomic: `current = next`, `next = propose`.
+     * - `nonce()` equals the WOTS index.
+     *
+     * Requirements:
+     * - `require(sig.length == 4417, "sig length")`
+     *
+     * @param userOp User operation.
+     * @param userOpHash Hash of the user operation.
+     * @return validationData Zero on success, otherwise packed validation data.
+     */
     function validateUserOp(
         IEntryPoint.UserOperation calldata userOp,
         bytes32 userOpHash,
         uint256 /*missingAccountFunds*/
     ) external onlyEntryPoint returns (uint256 validationData) {
         bytes calldata sig = userOp.signature;
-        if (sig.length != 4417) revert Sig_Length();
+        require(sig.length == SIG_LEN, "sig length");
 
-        bytes memory ecdsaSig = new bytes(65);
+        bytes memory ecdsaSig = new bytes(ECDSA_LEN);
         bytes32[67] memory wotsSig;
         bytes32[67] memory wotsPk;
         bytes32 confirmNextCommit;
@@ -126,14 +151,14 @@ contract PQCWallet {
 
         // slither-disable-next-line assembly
         assembly {
-            calldatacopy(add(ecdsaSig, 0x20), sig.offset, 65)
-            let wotsSigPtr := add(sig.offset, 65)
-            calldatacopy(wotsSig, wotsSigPtr, mul(32, 67))
-            let wotsPkPtr := add(wotsSigPtr, mul(32, 67))
-            calldatacopy(wotsPk, wotsPkPtr, mul(32, 67))
-            let confirmPtr := add(wotsPkPtr, mul(32, 67))
+            calldatacopy(add(ecdsaSig, 0x20), sig.offset, ECDSA_LEN) // ECDSA_OFF = 0
+            let wotsSigPtr := add(sig.offset, 65) // WOTS_SIG_OFF
+            calldatacopy(wotsSig, wotsSigPtr, WOTS_SEG_LEN)
+            let wotsPkPtr := add(sig.offset, 2209) // WOTS_PK_OFF
+            calldatacopy(wotsPk, wotsPkPtr, WOTS_SEG_LEN)
+            let confirmPtr := add(sig.offset, 4353) // CONFIRM_OFF
             confirmNextCommit := calldataload(confirmPtr)
-            let proposePtr := add(confirmPtr, 32)
+            let proposePtr := add(sig.offset, 4385) // PROPOSE_OFF
             proposeNextCommit := calldataload(proposePtr)
         }
 
@@ -221,7 +246,7 @@ contract PQCWallet {
     function setForceOnChainVerify(bool enabled) external {
         if (msg.sender != owner) revert NotOwner();
         forceOnChainVerify = enabled;
-        emit ForceOnChainSet(enabled);
+        emit ForceOnChainVerifySet(enabled);
     }
 
     /// @notice Receive plain ETH transfers.

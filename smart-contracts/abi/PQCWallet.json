@@ -403,7 +403,7 @@
   },
   {
     "type": "event",
-    "name": "ForceOnChainSet",
+    "name": "ForceOnChainVerifySet",
     "inputs": [
       {
         "name": "enabled",
