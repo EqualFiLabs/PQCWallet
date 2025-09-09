@@ -47,17 +47,15 @@ class ActivityFeed extends StatelessWidget {
             return ListTile(
               leading: CircleAvatar(
                 backgroundColor: _statusColor(it.status),
-                child: Text(it.opKind == 'erc20'
-                    ? (it.tokenSymbol ?? 'T')
-                    : 'Ξ'),
+                child:
+                    Text(it.opKind == 'erc20' ? (it.tokenSymbol ?? 'T') : 'Ξ'),
               ),
               title: Text('${it.display} → $shortTo'),
               subtitle: Text('$shortHash • $when'),
               trailing: Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 decoration: BoxDecoration(
-                  color: _statusColor(it.status).withOpacity(0.1),
+                  color: _statusColor(it.status).withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(8),
                 ),
                 child: Text(it.status.name),
