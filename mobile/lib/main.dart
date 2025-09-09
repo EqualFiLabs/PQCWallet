@@ -13,6 +13,10 @@ import 'userop/userop_flow.dart';
 import 'state/settings.dart';
 import 'ui/settings_screen.dart';
 import 'ui/send_sheet.dart';
+import 'models/activity.dart';
+import 'services/activity_store.dart';
+import 'services/activity_poller.dart';
+import 'ui/activity_feed.dart';
 
 void main() => runApp(const PQCApp());
 
@@ -115,12 +119,30 @@ class _BodyState extends State<_Body> {
   final recipientCtl = TextEditingController();
   final amountCtl = TextEditingController(text: '0.001');
   final PendingIndexStore pendingStore = PendingIndexStore();
+  final ActivityStore activityStore = ActivityStore();
+  late final ActivityPoller activityPoller;
+
+  @override
+  void initState() {
+    super.initState();
+    activityStore.load();
+    activityPoller = ActivityPoller(store: activityStore, rpc: rpc, bundler: bundler);
+    activityPoller.start();
+  }
+
+  @override
+  void dispose() {
+    activityPoller.stop();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        SizedBox(height: 200, child: ActivityFeed(store: activityStore)),
+        const SizedBox(height: 16),
         _Card(child: SelectableText('ChainId: ${widget.cfg['chainId']}')),
         const SizedBox(height: 8),
         _Card(child: SelectableText('Wallet: ${widget.cfg['walletAddress']}')),
@@ -175,9 +197,9 @@ class _BodyState extends State<_Body> {
       widget.setStatus('Reading wallet state...');
       final wallet = EthereumAddress.fromHex(widget.cfg['walletAddress']);
       final to = EthereumAddress.fromHex(recipientCtl.text.trim());
+      final amtStr = amountCtl.text.trim();
       final amountWei =
-          EtherAmount.fromBase10String(EtherUnit.ether, amountCtl.text.trim())
-              .getInWei;
+          EtherAmount.fromBase10String(EtherUnit.ether, amtStr).getInWei;
 
       final flow = UserOpFlow(rpc: rpc, bundler: bundler, store: pendingStore);
       final uoh = await flow.sendEth(
@@ -189,6 +211,18 @@ class _BodyState extends State<_Body> {
         log: widget.setStatus,
         selectFees: (f) => showFeeSheet(context, f),
       );
+
+      await activityStore.upsertByUserOpHash(uoh, (existing) =>
+          existing?.copyWith(status: ActivityStatus.sent) ??
+          ActivityItem(
+            userOpHash: uoh,
+            to: to.hex,
+            display: '$amtStr ETH',
+            ts: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+            status: ActivityStatus.sent,
+            chainId: widget.cfg['chainId'],
+            opKind: 'eth',
+          ));
 
       widget.setStatus('Sent. UserOpHash: $uoh (waiting for receipt...)');
 

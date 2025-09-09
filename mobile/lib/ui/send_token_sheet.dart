@@ -3,18 +3,22 @@ import '../models/token.dart';
 import '../userop/userop_flow.dart';
 import '../crypto/mnemonic.dart';
 import '../state/settings.dart';
+import '../models/activity.dart';
+import '../services/activity_store.dart';
 
 class SendTokenSheet extends StatefulWidget {
   final Map<String, dynamic> cfg;
   final UserOpFlow flow;
   final KeyMaterial keys;
   final AppSettings settings;
+  final ActivityStore store;
   const SendTokenSheet({
     super.key,
     required this.cfg,
     required this.flow,
     required this.keys,
     required this.settings,
+    required this.store,
   });
 
   @override
@@ -55,11 +59,14 @@ class _SendTokenSheetState extends State<SendTokenSheet> {
     final token = selected;
     final tokenInfo = registry!.token(token)!;
     final decimals = (tokenInfo['decimals'] as num).toInt();
-    final amount = _parseAmount(amtCtrl.text.trim(), decimals);
+    final amtStr = amtCtrl.text.trim();
+    final amount = _parseAmount(amtStr, decimals);
     final to = toCtrl.text.trim();
+    final chainId = widget.cfg['chainId'] as int;
+    final tokenAddr = registry!.tokenAddress(token, chainId)!;
     setState(() => sending = true);
     try {
-      await widget.flow.sendToken(
+      final uoh = await widget.flow.sendToken(
         cfg: widget.cfg,
         keys: widget.keys,
         tokenSymbol: token,
@@ -72,6 +79,19 @@ class _SendTokenSheetState extends State<SendTokenSheet> {
         log: (m) => debugPrint(m),
         selectFees: (f) async => f,
       );
+      await widget.store.upsertByUserOpHash(uoh, (existing) =>
+          existing?.copyWith(status: ActivityStatus.sent) ??
+          ActivityItem(
+            userOpHash: uoh,
+            to: to,
+            display: '$amtStr $token',
+            ts: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+            status: ActivityStatus.sent,
+            chainId: chainId,
+            opKind: 'erc20',
+            tokenSymbol: token,
+            tokenAddress: tokenAddr,
+          ));
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
       debugPrint('send error: $e');
