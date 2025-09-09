@@ -7,6 +7,8 @@ import '../crypto/wots.dart';
 import '../services/bundler_client.dart';
 import '../services/rpc.dart';
 import '../services/storage.dart';
+import '../services/biometric.dart';
+import '../state/settings.dart';
 import '../userop/userop.dart';
 import '../userop/userop_signer.dart';
 
@@ -22,6 +24,7 @@ class UserOpFlow {
     required KeyMaterial keys,
     required EthereumAddress to,
     required BigInt amountWei,
+    required AppSettings settings,
     required void Function(String) log,
   }) async {
     final chainId = cfg['chainId'] as int;
@@ -81,6 +84,23 @@ class UserOpFlow {
 
     final userOpHash = await _getUserOpHash(entryPoint.hex, op);
     final userOpHashHex = '0x${w3.bytesToHex(userOpHash, include0x: false)}';
+
+    final mustAuth = settings.requireBiometricForChain(chainId);
+    if (mustAuth) {
+      final bio = BiometricService();
+      final can = await bio.canCheck();
+      if (!can) {
+        log('Biometric requested but unavailable. Aborting.');
+        throw Exception('biometric-unavailable');
+      }
+      final ok = await bio.authenticate(
+          reason: 'Authenticate to sign & send this transaction');
+      if (!ok) {
+        log('Authentication canceled/failed. Send aborted.');
+        throw Exception('auth-failed');
+      }
+      log('Authentication successful.');
+    }
 
     final now = DateTime.now().toUtc().toIso8601String();
     String decision;

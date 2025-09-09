@@ -10,6 +10,8 @@ import 'services/bundler_client.dart';
 import 'crypto/mnemonic.dart';
 import 'services/storage.dart';
 import 'userop/userop_flow.dart';
+import 'state/settings.dart';
+import 'ui/settings_screen.dart';
 
 void main() => runApp(const PQCApp());
 
@@ -25,6 +27,8 @@ class _PQCAppState extends State<PQCApp> {
   final storage = const FlutterSecureStorage();
   KeyMaterial? _keys;
   String _status = 'Ready';
+  AppSettings _settings = const AppSettings();
+  final SettingsStore _settingsStore = SettingsStore();
 
   @override
   void initState() {
@@ -43,7 +47,21 @@ class _PQCAppState extends State<PQCApp> {
     final km = deriveFromMnemonic(existing);
     if (existing == null)
       await storage.write(key: 'mnemonic', value: km.mnemonic);
-    setState(() => _keys = km);
+    final s = await _settingsStore.load();
+    setState(() {
+      _keys = km;
+      _settings = s;
+    });
+  }
+
+  Future<void> _openSettings() async {
+    await Navigator.of(context).push(MaterialPageRoute(
+        builder: (_) => SettingsScreen(
+              settings: _settings,
+              store: _settingsStore,
+            )));
+    final s = await _settingsStore.load();
+    setState(() => _settings = s);
   }
 
   @override
@@ -51,12 +69,19 @@ class _PQCAppState extends State<PQCApp> {
     return MaterialApp(
       theme: _theme,
       home: Scaffold(
-        appBar: AppBar(title: const Text('EqualFi PQC Wallet (MVP)')),
+        appBar: AppBar(
+          title: const Text('EqualFi PQC Wallet (MVP)'),
+          actions: [
+            IconButton(
+                onPressed: _openSettings, icon: const Icon(Icons.settings))
+          ],
+        ),
         body: _cfg == null || _keys == null
             ? const Center(child: CircularProgressIndicator())
             : _Body(
                 cfg: _cfg!,
                 keys: _keys!,
+                settings: _settings,
                 setStatus: (s) => setState(() => _status = s)),
         bottomNavigationBar: Container(
           padding: const EdgeInsets.all(12),
@@ -70,8 +95,14 @@ class _PQCAppState extends State<PQCApp> {
 class _Body extends StatefulWidget {
   final Map<String, dynamic> cfg;
   final KeyMaterial keys;
+  final AppSettings settings;
   final void Function(String) setStatus;
-  const _Body({required this.cfg, required this.keys, required this.setStatus});
+  const _Body({
+    required this.cfg,
+    required this.keys,
+    required this.settings,
+    required this.setStatus,
+  });
 
   @override
   State<_Body> createState() => _BodyState();
@@ -153,6 +184,7 @@ class _BodyState extends State<_Body> {
         keys: widget.keys,
         to: to,
         amountWei: amountWei,
+        settings: widget.settings,
         log: widget.setStatus,
       );
 

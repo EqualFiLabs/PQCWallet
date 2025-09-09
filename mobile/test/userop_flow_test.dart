@@ -6,6 +6,7 @@ import 'package:pqc_wallet/services/storage.dart';
 import 'package:pqc_wallet/userop/userop_flow.dart';
 import 'package:pqc_wallet/services/rpc.dart';
 import 'package:pqc_wallet/services/bundler_client.dart';
+import 'package:pqc_wallet/state/settings.dart';
 
 class MockRpc extends RpcClient {
   int _i = 0;
@@ -78,6 +79,7 @@ void main() {
       keys: keys,
       to: to,
       amountWei: BigInt.one,
+      settings: const AppSettings(),
       log: logs.add,
     );
     final first = logs.last;
@@ -87,6 +89,7 @@ void main() {
       keys: keys,
       to: to,
       amountWei: BigInt.one,
+      settings: const AppSettings(),
       log: logs.add,
     );
     final second = logs.last;

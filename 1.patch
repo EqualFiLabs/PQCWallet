@@ -1,0 +1,633 @@
+ (cd "$(git rev-parse --show-toplevel)" && git apply --3way <<'EOF' 
+diff --git a/mobile/android/app/src/main/AndroidManifest.xml b/mobile/android/app/src/main/AndroidManifest.xml
+new file mode 100644
+index 0000000000000000000000000000000000000000..9ffdfc2a91fa0d3fee442435f630abe1ef834e93
+--- /dev/null
++++ b/mobile/android/app/src/main/AndroidManifest.xml
+@@ -0,0 +1,5 @@
++<manifest xmlns:android="http://schemas.android.com/apk/res/android"
++    package="com.equalfi.pqcwallet">
++    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
++    <uses-permission android:name="android.permission.USE_FINGERPRINT" />
++</manifest>
+diff --git a/mobile/ios/Runner/Info.plist b/mobile/ios/Runner/Info.plist
+new file mode 100644
+index 0000000000000000000000000000000000000000..47ddbdda1b77330671a0b62ff5bcfce6e304c087
+--- /dev/null
++++ b/mobile/ios/Runner/Info.plist
+@@ -0,0 +1,8 @@
++<?xml version="1.0" encoding="UTF-8"?>
++<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
++<plist version="1.0">
++  <dict>
++    <key>NSFaceIDUsageDescription</key>
++    <string>Authenticate to approve transactions.</string>
++  </dict>
++</plist>
+diff --git a/mobile/lib/main.dart b/mobile/lib/main.dart
+index 86e4388949e98a5f1ddbb9fee27b59d309eeae41..6d889d54b090a760e8440c921c7206465f378a6d 100644
+--- a/mobile/lib/main.dart
++++ b/mobile/lib/main.dart
+@@ -1,99 +1,129 @@
+ import 'dart:convert';
+ import 'package:flutter/material.dart';
+ import 'package:flutter/services.dart' show rootBundle;
+ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+ import 'package:web3dart/web3dart.dart';
+ 
+ import 'theme/theme.dart';
+ import 'services/rpc.dart';
+ import 'services/bundler_client.dart';
+ import 'crypto/mnemonic.dart';
+ import 'services/storage.dart';
+ import 'userop/userop_flow.dart';
++import 'state/settings.dart';
++import 'ui/settings_screen.dart';
+ 
+ void main() => runApp(const PQCApp());
+ 
+ class PQCApp extends StatefulWidget {
+   const PQCApp({super.key});
+   @override
+   State<PQCApp> createState() => _PQCAppState();
+ }
+ 
+ class _PQCAppState extends State<PQCApp> {
+   late ThemeData _theme;
+   Map<String, dynamic>? _cfg;
+   final storage = const FlutterSecureStorage();
+   KeyMaterial? _keys;
+   String _status = 'Ready';
++  AppSettings _settings = const AppSettings();
++  final SettingsStore _settingsStore = SettingsStore();
+ 
+   @override
+   void initState() {
+     super.initState();
+     _theme = cyberpunkTheme();
+     _load();
+   }
+ 
+   Future<void> _load() async {
+     final cfg =
+         jsonDecode(await rootBundle.loadString('assets/config.example.json'))
+             as Map<String, dynamic>;
+     setState(() => _cfg = cfg);
+     // Load or create mnemonic
+     final existing = await storage.read(key: 'mnemonic');
+     final km = deriveFromMnemonic(existing);
+     if (existing == null)
+       await storage.write(key: 'mnemonic', value: km.mnemonic);
+-    setState(() => _keys = km);
++    final s = await _settingsStore.load();
++    setState(() {
++      _keys = km;
++      _settings = s;
++    });
++  }
++
++  Future<void> _openSettings() async {
++    await Navigator.of(context).push(MaterialPageRoute(
++        builder: (_) => SettingsScreen(
++              settings: _settings,
++              store: _settingsStore,
++            )));
++    final s = await _settingsStore.load();
++    setState(() => _settings = s);
+   }
+ 
+   @override
+   Widget build(BuildContext context) {
+     return MaterialApp(
+       theme: _theme,
+       home: Scaffold(
+-        appBar: AppBar(title: const Text('EqualFi PQC Wallet (MVP)')),
++        appBar: AppBar(
++          title: const Text('EqualFi PQC Wallet (MVP)'),
++          actions: [
++            IconButton(onPressed: _openSettings, icon: const Icon(Icons.settings))
++          ],
++        ),
+         body: _cfg == null || _keys == null
+             ? const Center(child: CircularProgressIndicator())
+             : _Body(
+                 cfg: _cfg!,
+                 keys: _keys!,
++                settings: _settings,
+                 setStatus: (s) => setState(() => _status = s)),
+         bottomNavigationBar: Container(
+           padding: const EdgeInsets.all(12),
+           child: Text(_status, textAlign: TextAlign.center),
+         ),
+       ),
+     );
+   }
+ }
+ 
+ class _Body extends StatefulWidget {
+   final Map<String, dynamic> cfg;
+   final KeyMaterial keys;
++  final AppSettings settings;
+   final void Function(String) setStatus;
+-  const _Body({required this.cfg, required this.keys, required this.setStatus});
++  const _Body({
++    required this.cfg,
++    required this.keys,
++    required this.settings,
++    required this.setStatus,
++  });
+ 
+   @override
+   State<_Body> createState() => _BodyState();
+ }
+ 
+ class _BodyState extends State<_Body> {
+   late final rpc = RpcClient(widget.cfg['rpcUrl']);
+   late final bundler = BundlerClient(widget.cfg['bundlerUrl']);
+   final recipientCtl = TextEditingController();
+   final amountCtl = TextEditingController(text: '0.001');
+   final PendingIndexStore pendingStore = PendingIndexStore();
+ 
+   @override
+   Widget build(BuildContext context) {
+     return ListView(
+       padding: const EdgeInsets.all(16),
+       children: [
+         _Card(child: SelectableText('ChainId: ${widget.cfg['chainId']}')),
+         const SizedBox(height: 8),
+         _Card(child: SelectableText('Wallet: ${widget.cfg['walletAddress']}')),
+         const SizedBox(height: 8),
+         _Card(child: SelectableText('EntryPoint: ${widget.cfg['entryPoint']}')),
+         const SizedBox(height: 8),
+         _Card(child: SelectableText('Aggregator: ${widget.cfg['aggregator']}')),
+         const SizedBox(height: 8),
+@@ -131,50 +161,51 @@ class _BodyState extends State<_Body> {
+             Expanded(
+                 child: ElevatedButton(
+                     onPressed: _clearPending,
+                     child: const Text('Clear Pending'))),
+           ],
+         ),
+       ],
+     );
+   }
+ 
+   Future<void> _sendEth() async {
+     try {
+       widget.setStatus('Reading wallet state...');
+       final wallet = EthereumAddress.fromHex(widget.cfg['walletAddress']);
+       final to = EthereumAddress.fromHex(recipientCtl.text.trim());
+       final amountWei =
+           EtherAmount.fromBase10String(EtherUnit.ether, amountCtl.text.trim())
+               .getInWei;
+ 
+       final flow = UserOpFlow(rpc: rpc, bundler: bundler, store: pendingStore);
+       final uoh = await flow.sendEth(
+         cfg: widget.cfg,
+         keys: widget.keys,
+         to: to,
+         amountWei: amountWei,
++        settings: widget.settings,
+         log: widget.setStatus,
+       );
+ 
+       widget.setStatus('Sent. UserOpHash: $uoh (waiting for receipt...)');
+ 
+       for (int i = 0; i < 30; i++) {
+         await Future.delayed(const Duration(seconds: 2));
+         final r = await bundler.getUserOperationReceipt(uoh);
+         if (r != null) {
+           await pendingStore.clear(widget.cfg['chainId'], wallet.hex);
+           widget
+               .setStatus('Inclusion tx: ${r['receipt']['transactionHash']} ✅');
+           return;
+         }
+       }
+       widget.setStatus('Timed out waiting for receipt (check explorer).');
+     } catch (e) {
+       widget.setStatus('Error: $e');
+     }
+   }
+ 
+   Future<void> _showPending() async {
+     final wallet = EthereumAddress.fromHex(widget.cfg['walletAddress']);
+     final chainId = widget.cfg['chainId'];
+     final pending = await pendingStore.load(chainId, wallet.hex);
+diff --git a/mobile/lib/services/biometric.dart b/mobile/lib/services/biometric.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..e6b2ccb4f5f591df3afcf8d063f759a5d75534c9
+--- /dev/null
++++ b/mobile/lib/services/biometric.dart
+@@ -0,0 +1,44 @@
++import 'package:local_auth/local_auth.dart';
++
++class BiometricService {
++  final LocalAuthentication _auth = LocalAuthentication();
++
++  Future<bool> isDeviceSupported() async {
++    try {
++      return await _auth.isDeviceSupported();
++    } catch (_) {
++      return false;
++    }
++  }
++
++  Future<bool> canCheck() async {
++    try {
++      return await _auth.canCheckBiometrics || await _auth.isDeviceSupported();
++    } catch (_) {
++      return false;
++    }
++  }
++
++  /// Prompt the user to authenticate. Returns true if success, false if cancel/fail.
++  Future<bool> authenticate({required String reason}) async {
++    try {
++      return await _auth.authenticate(
++        localizedReason: reason,
++        options: const AuthenticationOptions(
++          biometricOnly: false,
++          stickyAuth: true,
++          useErrorDialogs: true,
++          sensitiveTransaction: true,
++        ),
++      );
++    } catch (_) {
++      return false;
++    }
++  }
++
++  Future<void> cancel() async {
++    try {
++      await _auth.stopAuthentication();
++    } catch (_) {}
++  }
++}
+diff --git a/mobile/lib/state/settings.dart b/mobile/lib/state/settings.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..d63c81c4cfac5673c3f3ba045199e6a9821fe20a
+--- /dev/null
++++ b/mobile/lib/state/settings.dart
+@@ -0,0 +1,39 @@
++import 'dart:convert';
++import 'package:flutter_secure_storage/flutter_secure_storage.dart';
++
++class AppSettings {
++  final bool biometricOnTestnets;
++  const AppSettings({this.biometricOnTestnets = false});
++
++  AppSettings copyWith({bool? biometricOnTestnets}) => AppSettings(
++      biometricOnTestnets: biometricOnTestnets ?? this.biometricOnTestnets);
++
++  Map<String, dynamic> toJson() => {
++        'biometricOnTestnets': biometricOnTestnets,
++      };
++
++  static AppSettings fromJson(Map<String, dynamic> json) => AppSettings(
++        biometricOnTestnets: json['biometricOnTestnets'] == true,
++      );
++
++  bool isTestnet(int chainId) =>
++      const {84532, 11155111, 5, 80001}.contains(chainId);
++
++  bool requireBiometricForChain(int chainId) =>
++      chainId == 8453 || (isTestnet(chainId) && biometricOnTestnets);
++}
++
++class SettingsStore {
++  final FlutterSecureStorage _ss = const FlutterSecureStorage();
++  final String _key = 'pqcwallet/settings';
++
++  Future<AppSettings> load() async {
++    final s = await _ss.read(key: _key);
++    if (s == null) return const AppSettings();
++    return AppSettings.fromJson(jsonDecode(s) as Map<String, dynamic>);
++  }
++
++  Future<void> save(AppSettings s) async {
++    await _ss.write(key: _key, value: jsonEncode(s.toJson()));
++  }
++}
+diff --git a/mobile/lib/ui/settings_screen.dart b/mobile/lib/ui/settings_screen.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..e075234f2d8a6011d5209b5b3d1d8009e6eeaca1
+--- /dev/null
++++ b/mobile/lib/ui/settings_screen.dart
+@@ -0,0 +1,44 @@
++import 'package:flutter/material.dart';
++import '../state/settings.dart';
++
++class SettingsScreen extends StatefulWidget {
++  final AppSettings settings;
++  final SettingsStore store;
++  const SettingsScreen({super.key, required this.settings, required this.store});
++
++  @override
++  State<SettingsScreen> createState() => _SettingsScreenState();
++}
++
++class _SettingsScreenState extends State<SettingsScreen> {
++  late AppSettings _s;
++
++  @override
++  void initState() {
++    super.initState();
++    _s = widget.settings;
++  }
++
++  Future<void> _toggle(bool v) async {
++    setState(() => _s = _s.copyWith(biometricOnTestnets: v));
++    await widget.store.save(_s);
++  }
++
++  @override
++  Widget build(BuildContext context) {
++    return Scaffold(
++      appBar: AppBar(title: const Text('Settings')),
++      body: ListView(
++        children: [
++          SwitchListTile(
++            title: const Text('Require biometric on testnets'),
++            subtitle: const Text(
++                'When enabled, you must authenticate before signing on testnets. Always required on mainnet.'),
++            value: _s.biometricOnTestnets,
++            onChanged: _toggle,
++          ),
++        ],
++      ),
++    );
++  }
++}
+diff --git a/mobile/lib/userop/userop_flow.dart b/mobile/lib/userop/userop_flow.dart
+index d700b3d897c3eed88c7d6abd5758209d43c508c3..702a89e534e558830d85772d7b95b08e7b66ed9e 100644
+--- a/mobile/lib/userop/userop_flow.dart
++++ b/mobile/lib/userop/userop_flow.dart
+@@ -1,49 +1,52 @@
+ import 'dart:typed_data';
+ import 'package:web3dart/crypto.dart' as w3;
+ import 'package:web3dart/web3dart.dart';
+ 
+ import '../crypto/mnemonic.dart';
+ import '../crypto/wots.dart';
+ import '../services/bundler_client.dart';
+ import '../services/rpc.dart';
+ import '../services/storage.dart';
++import '../services/biometric.dart';
++import '../state/settings.dart';
+ import '../userop/userop.dart';
+ import '../userop/userop_signer.dart';
+ 
+ class UserOpFlow {
+   final RpcClient rpc;
+   final BundlerClient bundler;
+   final PendingIndexStore store;
+ 
+   UserOpFlow({required this.rpc, required this.bundler, required this.store});
+ 
+   Future<String> sendEth({
+     required Map<String, dynamic> cfg,
+     required KeyMaterial keys,
+     required EthereumAddress to,
+     required BigInt amountWei,
++    required AppSettings settings,
+     required void Function(String) log,
+   }) async {
+     final chainId = cfg['chainId'] as int;
+     final wallet = EthereumAddress.fromHex(cfg['walletAddress']);
+     final entryPoint = EthereumAddress.fromHex(cfg['entryPoint']);
+ 
+     // view function encodings
+     const fnNonce = ContractFunction('nonce', [],
+         outputs: [FunctionParameter('', UintType())]);
+     const fnCurrent = ContractFunction('currentPkCommit', [],
+         outputs: [FunctionParameter('', FixedBytes(32))]);
+     const fnNext = ContractFunction('nextPkCommit', [],
+         outputs: [FunctionParameter('', FixedBytes(32))]);
+     final dataNonce = fnNonce.encodeCall(const []);
+     final dataCur = fnCurrent.encodeCall(const []);
+     final dataNext = fnNext.encodeCall(const []);
+ 
+     final nonceHex = await rpc.callViewHex(
+         wallet.hex, '0x${w3.bytesToHex(dataNonce, include0x: false)}');
+     final curHex = await rpc.callViewHex(
+         wallet.hex, '0x${w3.bytesToHex(dataCur, include0x: false)}');
+     final nextHex = await rpc.callViewHex(
+         wallet.hex, '0x${w3.bytesToHex(dataNext, include0x: false)}');
+ 
+     BigInt parseHexBigInt(String h) {
+@@ -60,50 +63,67 @@ class UserOpFlow {
+       return out;
+     }
+ 
+     final nonceOnChain = parseHexBigInt(nonceHex);
+     final currentCommitOnChain = parseHex32(curHex);
+     final nextCommitOnChain = parseHex32(nextHex);
+     log('currentPkCommit: 0x${w3.bytesToHex(currentCommitOnChain, include0x: true)}');
+ 
+     final pending = await store.load(chainId, wallet.hex);
+     final callData = _encodeExecute(to, amountWei);
+ 
+     final op = UserOperation()
+       ..sender = wallet.hex
+       ..nonce = nonceOnChain
+       ..callData = callData;
+ 
+     final gas = await bundler.estimateUserOpGas(op.toJson(), entryPoint.hex);
+     op.callGasLimit = BigInt.parse(gas['callGasLimit'].toString());
+     op.verificationGasLimit =
+         BigInt.parse(gas['verificationGasLimit'].toString());
+     op.preVerificationGas = BigInt.parse(gas['preVerificationGas'].toString());
+ 
+     final userOpHash = await _getUserOpHash(entryPoint.hex, op);
+     final userOpHashHex = '0x${w3.bytesToHex(userOpHash, include0x: false)}';
+ 
++    final mustAuth = settings.requireBiometricForChain(chainId);
++    if (mustAuth) {
++      final bio = BiometricService();
++      final can = await bio.canCheck();
++      if (!can) {
++        log('Biometric requested but unavailable. Aborting.');
++        throw Exception('biometric-unavailable');
++      }
++      final ok = await bio.authenticate(
++          reason: 'Authenticate to sign & send this transaction');
++      if (!ok) {
++        log('Authentication canceled/failed. Send aborted.');
++        throw Exception('auth-failed');
++      }
++      log('Authentication successful.');
++    }
++
+     final now = DateTime.now().toUtc().toIso8601String();
+     String decision;
+     Map<String, dynamic>? record = pending;
+ 
+     if (pending != null &&
+         pending['userOpHash'] == userOpHashHex &&
+         pending['index'] == nonceOnChain.toInt() &&
+         (pending['entryPoint'] as String).toLowerCase() ==
+             entryPoint.hex.toLowerCase() &&
+         pending['networkChainId'] == chainId) {
+       // reuse
+       decision = 'reuse';
+       op.signature =
+           Uint8List.fromList(w3.hexToBytes(pending['signatureHybrid']));
+       pending['status'] = 'sent';
+       pending['lastAttemptAt'] = now;
+       await store.save(chainId, wallet.hex, pending);
+     } else {
+       if (pending != null && pending['index'] != nonceOnChain.toInt()) {
+         await store.clear(chainId, wallet.hex);
+         decision = 'stale-clear';
+       } else if (pending != null) {
+         decision = 'rebuild';
+       } else {
+         decision = 'fresh';
+diff --git a/mobile/pubspec.yaml b/mobile/pubspec.yaml
+index 0c48366eb0ec1efd57fc65a78a9285dcabf9c365..55a53a0d8f09eca7ab64a0b4ddc2c1e76095aaf4 100644
+--- a/mobile/pubspec.yaml
++++ b/mobile/pubspec.yaml
+@@ -1,28 +1,29 @@
+ name: pqc_wallet
+ description: Quantum-safe ERC-4337 smart wallet (Flutter)
+ publish_to: "none"
+ version: 0.1.0+1
+ 
+ environment:
+   sdk: ">=3.3.0 <4.0.0"
+ 
+ dependencies:
+   flutter:
+     sdk: flutter
+   http: ^1.2.1
+   web3dart: ^2.7.3
+   bip39: ^1.0.6
+   bip32: ^2.0.0
+   crypto: ^3.0.3
+   flutter_secure_storage: ^9.0.0
++  local_auth: ^2.3.0
+   collection: ^1.18.0
+ 
+ dev_dependencies:
+   flutter_test:
+     sdk: flutter
+   lints: ^3.0.0
+ 
+ flutter:
+   uses-material-design: true
+   assets:
+     - assets/config.example.json
+diff --git a/mobile/test/app_settings_test.dart b/mobile/test/app_settings_test.dart
+new file mode 100644
+index 0000000000000000000000000000000000000000..fc51d74f97e01eba53487d5e93c69eba5fc4e7dc
+--- /dev/null
++++ b/mobile/test/app_settings_test.dart
+@@ -0,0 +1,22 @@
++import 'package:flutter_secure_storage/flutter_secure_storage.dart';
++import 'package:flutter_test/flutter_test.dart';
++import 'package:pqc_wallet/state/settings.dart';
++
++void main() {
++  TestWidgetsFlutterBinding.ensureInitialized();
++  FlutterSecureStorage.setMockInitialValues({});
++
++  test('settings persistence and gating logic', () async {
++    final store = SettingsStore();
++    var s = await store.load();
++    expect(s.biometricOnTestnets, isFalse);
++    expect(s.requireBiometricForChain(8453), isTrue);
++    expect(s.requireBiometricForChain(84532), isFalse);
++    s = s.copyWith(biometricOnTestnets: true);
++    await store.save(s);
++    final loaded = await store.load();
++    expect(loaded.biometricOnTestnets, isTrue);
++    expect(loaded.requireBiometricForChain(84532), isTrue);
++    expect(loaded.requireBiometricForChain(8453), isTrue);
++  });
++}
+diff --git a/mobile/test/userop_flow_test.dart b/mobile/test/userop_flow_test.dart
+index 15d4e2e3f10c70b0c70bdaafb3100f21a432d2ce..0a4d7d6af2fca1ca0bad22a85d5728d4548d6755 100644
+--- a/mobile/test/userop_flow_test.dart
++++ b/mobile/test/userop_flow_test.dart
+@@ -1,33 +1,34 @@
+ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+ import 'package:flutter_test/flutter_test.dart';
+ import 'package:web3dart/web3dart.dart';
+ import 'package:pqc_wallet/crypto/mnemonic.dart';
+ import 'package:pqc_wallet/services/storage.dart';
+ import 'package:pqc_wallet/userop/userop_flow.dart';
+ import 'package:pqc_wallet/services/rpc.dart';
+ import 'package:pqc_wallet/services/bundler_client.dart';
++import 'package:pqc_wallet/state/settings.dart';
+ 
+ class MockRpc extends RpcClient {
+   int _i = 0;
+   MockRpc() : super('');
+   @override
+   Future<dynamic> call(String method, [dynamic params]) async {
+     if (method == 'eth_call') {
+       switch (_i++) {
+         case 0:
+           return '0x1';
+         case 1:
+           return '0x' + '00' * 32;
+         case 2:
+           return '0x' + '22' * 32;
+         case 3:
+           return '0x' + '11' * 32;
+         case 4:
+           return '0x1';
+         case 5:
+           return '0x' + '00' * 32;
+         case 6:
+           return '0x' + '22' * 32;
+         default:
+           return '0x' + '11' * 32;
+       }
+@@ -56,41 +57,43 @@ class MockBundler extends BundlerClient {
+ }
+ 
+ void main() {
+   TestWidgetsFlutterBinding.ensureInitialized();
+   FlutterSecureStorage.setMockInitialValues({});
+ 
+   test('reuses hybrid signature when userOpHash unchanged', () async {
+     final rpc = MockRpc();
+     final bundler = MockBundler();
+     final store = PendingIndexStore();
+     final keys = deriveFromMnemonic(null);
+     final cfg = {
+       'chainId': 1,
+       'walletAddress': '0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+       'entryPoint': '0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb',
+     };
+     final flow = UserOpFlow(rpc: rpc, bundler: bundler, store: store);
+     final to =
+         EthereumAddress.fromHex('0xcccccccccccccccccccccccccccccccccccccccc');
+     final logs = <String>[];
+     await flow.sendEth(
+       cfg: cfg,
+       keys: keys,
+       to: to,
+       amountWei: BigInt.one,
++      settings: const AppSettings(),
+       log: logs.add,
+     );
+     final first = logs.last;
+     logs.clear();
+     await flow.sendEth(
+       cfg: cfg,
+       keys: keys,
+       to: to,
+       amountWei: BigInt.one,
++      settings: const AppSettings(),
+       log: logs.add,
+     );
+     final second = logs.last;
+     expect(first.contains('decision: fresh'), isTrue);
+     expect(second.contains('decision: reuse'), isTrue);
+   });
+ }
+ 
+EOF
+)
