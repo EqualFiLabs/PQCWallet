@@ -40,7 +40,7 @@ contract PQCWalletTest is Test {
     event WOTSCommitmentsUpdated(bytes32 currentCommit, bytes32 nextCommit);
     event AggregatorUpdated(address indexed aggregator);
     event VerifierUpdated(address indexed verifier);
-    event ForceOnChainSet(bool enabled);
+    event ForceOnChainVerifySet(bool enabled);
 
     DummyEntryPoint ep;
     PQCWallet wallet;
@@ -112,7 +112,7 @@ contract PQCWalletTest is Test {
 
         vm.prank(owner);
         vm.expectEmit(false, false, false, true, address(wallet));
-        emit ForceOnChainSet(false);
+        emit ForceOnChainVerifySet(false);
         wallet.setForceOnChainVerify(false);
         assertFalse(wallet.forceOnChainVerify());
         assertEq(wallet.getAggregator(), agg);
