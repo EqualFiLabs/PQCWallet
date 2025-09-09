@@ -1,5 +1,11 @@
 {
-  "rpcUrl": "https://base-mainnet.g.alchemy.com/v2/YOUR_KEY",
-  "bundlerUrl": "https://base-mainnet.g.alchemy.com/aa/YOUR_KEY",
-  "entryPointAddr": "0x0000000000000000000000000000000000000000"
+  "chainId": 84532,
+  "rpcUrl": "https://base-sepolia.g.alchemy.com/v2/KEY",
+  "bundlerUrl": "https://base-sepolia.g.alchemy.com/aa/KEY",
+  "entryPoint": "0x5ff137D4b0FdCD49dCa30C7Cf57F612B49c9Fd7F",
+  "walletAddress": "0xWALLET",
+  "aggregator": "0x0000000000000000000000000000000000000000",
+  "proverRegistry": "0x0000000000000000000000000000000000000000",
+  "forceOnChainVerify": true
 }
+

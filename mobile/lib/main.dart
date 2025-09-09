@@ -91,9 +91,17 @@ class _BodyState extends State<_Body> {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        _Card(child: SelectableText('ChainId: ${widget.cfg['chainId']}')),
+        const SizedBox(height: 8),
         _Card(child: SelectableText('Wallet: ${widget.cfg['walletAddress']}')),
         const SizedBox(height: 8),
         _Card(child: SelectableText('EntryPoint: ${widget.cfg['entryPoint']}')),
+        const SizedBox(height: 8),
+        _Card(child: SelectableText('Aggregator: ${widget.cfg['aggregator']}')),
+        const SizedBox(height: 8),
+        _Card(child: SelectableText('ProverRegistry: ${widget.cfg['proverRegistry']}')),
+        const SizedBox(height: 8),
+        _Card(child: SelectableText('ForceOnChainVerify: ${widget.cfg['forceOnChainVerify']}')),
         const SizedBox(height: 16),
         TextField(
             controller: recipientCtl,
