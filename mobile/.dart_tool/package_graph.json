@@ -220,6 +220,41 @@
       ]
     },
     {
+      "name": "local_auth_windows",
+      "version": "1.0.11",
+      "dependencies": [
+        "flutter",
+        "local_auth_platform_interface"
+      ]
+    },
+    {
+      "name": "local_auth_platform_interface",
+      "version": "1.0.10",
+      "dependencies": [
+        "flutter",
+        "plugin_platform_interface"
+      ]
+    },
+    {
+      "name": "local_auth_darwin",
+      "version": "1.6.0",
+      "dependencies": [
+        "flutter",
+        "intl",
+        "local_auth_platform_interface"
+      ]
+    },
+    {
+      "name": "local_auth_android",
+      "version": "1.0.52",
+      "dependencies": [
+        "flutter",
+        "flutter_plugin_android_lifecycle",
+        "intl",
+        "local_auth_platform_interface"
+      ]
+    },
+    {
       "name": "flutter_secure_storage_windows",
       "version": "3.1.2",
       "dependencies": [
@@ -445,6 +480,29 @@
       ]
     },
     {
+      "name": "plugin_platform_interface",
+      "version": "2.1.8",
+      "dependencies": [
+        "meta"
+      ]
+    },
+    {
+      "name": "intl",
+      "version": "0.20.2",
+      "dependencies": [
+        "clock",
+        "meta",
+        "path"
+      ]
+    },
+    {
+      "name": "flutter_plugin_android_lifecycle",
+      "version": "2.0.30",
+      "dependencies": [
+        "flutter"
+      ]
+    },
+    {
       "name": "win32",
       "version": "5.14.0",
       "dependencies": [
@@ -480,13 +538,6 @@
       "version": "0.0.0",
       "dependencies": [
         "flutter"
-      ]
-    },
-    {
-      "name": "plugin_platform_interface",
-      "version": "2.1.8",
-      "dependencies": [
-        "meta"
       ]
     },
     {
@@ -561,57 +612,6 @@
       "dependencies": [
         "meta",
         "path"
-      ]
-    },
-    {
-      "name": "local_auth_darwin",
-      "version": "1.6.0",
-      "dependencies": [
-        "flutter",
-        "intl",
-        "local_auth_platform_interface"
-      ]
-    },
-    {
-      "name": "intl",
-      "version": "0.20.2",
-      "dependencies": [
-        "clock",
-        "meta",
-        "path"
-      ]
-    },
-    {
-      "name": "local_auth_platform_interface",
-      "version": "1.0.10",
-      "dependencies": [
-        "flutter",
-        "plugin_platform_interface"
-      ]
-    },
-    {
-      "name": "local_auth_windows",
-      "version": "1.0.11",
-      "dependencies": [
-        "flutter",
-        "local_auth_platform_interface"
-      ]
-    },
-    {
-      "name": "local_auth_android",
-      "version": "1.0.52",
-      "dependencies": [
-        "flutter",
-        "flutter_plugin_android_lifecycle",
-        "intl",
-        "local_auth_platform_interface"
-      ]
-    },
-    {
-      "name": "flutter_plugin_android_lifecycle",
-      "version": "2.0.30",
-      "dependencies": [
-        "flutter"
       ]
     }
   ],
