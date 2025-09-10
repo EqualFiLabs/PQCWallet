@@ -501,27 +501,28 @@ class UserOpFlow {
     final entryHex = cfg['entryPoint'] as String?;
     final chainIdVal = cfg['chainId'];
     if (walletHex == null || entryHex == null || chainIdVal == null) {
-      log('Aggregator disabled: missing config');
+      log('Aggregator path disabled: missing config');
+      return;
+    }
+    if (cfg['aggregatorEnabled'] != true) {
+      log('Aggregator path disabled');
       return;
     }
     final att = Attest(
       userOpHash: userOpHash,
-      wallet: EthereumAddress.fromHex(walletHex),
-      entryPoint: EthereumAddress.fromHex(entryHex),
+      wallet: walletHex,
+      entryPoint: entryHex,
       chainId: BigInt.from(chainIdVal as int),
       pqcSigDigest: pqcSigDigest,
       currentPkCommit: currentCommit,
       confirmNextCommit: confirmCommit,
       proposeNextCommit: proposeCommit,
-      expiresAt: BigInt.zero,
-      prover: EthereumAddress.fromHex((cfg['aggregator'] as String?) ??
-          '0x0000000000000000000000000000000000000000'),
+      expiresAt: 0,
+      prover: (cfg['aggregator'] as String?) ??
+          '0x0000000000000000000000000000000000000000',
     );
     final digest = hashAttest(att);
-    if (cfg['aggregatorEnabled'] != true) {
-      log('Aggregator disabled: hashAttest=${bytesToHex0x(digest)}');
-      return;
-    }
+    log('hashAttest=${bytesToHex0x(digest)}');
     // Aggregator HTTP path intentionally disabled.
   }
 

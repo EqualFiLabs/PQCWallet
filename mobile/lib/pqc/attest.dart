@@ -8,15 +8,15 @@ import 'package:web3dart/web3dart.dart';
 /// Must match Solidity (Prover PR-1).
 class Attest {
   final Uint8List userOpHash;
-  final EthereumAddress wallet;
-  final EthereumAddress entryPoint;
+  final String wallet;
+  final String entryPoint;
   final BigInt chainId;
   final Uint8List pqcSigDigest;
   final Uint8List currentPkCommit;
   final Uint8List confirmNextCommit;
   final Uint8List proposeNextCommit;
-  final BigInt expiresAt; // uint64
-  final EthereumAddress prover;
+  final int expiresAt; // uint64
+  final String prover;
 
   Attest({
     required this.userOpHash,
@@ -44,30 +44,16 @@ const String kEip712Name = 'EqualFiPQCProver';
 /// Locked EIP-712 domain version.
 const String kEip712Version = '1';
 
-/// Locked Attest type string.
-const String kAttestTypeString =
-    'Attest(bytes32 userOpHash,address wallet,address entryPoint,uint256 chainId,bytes32 pqcSigDigest,bytes32 currentPkCommit,bytes32 confirmNextCommit,bytes32 proposeNextCommit,uint64 expiresAt,address prover)';
+/// Locked Attest type hash.
+final Uint8List kAttestTypeHash = w3.keccakUtf8(
+    'Attest(bytes32 userOpHash,address wallet,address entryPoint,uint256 chainId,bytes32 pqcSigDigest,bytes32 currentPkCommit,bytes32 confirmNextCommit,bytes32 proposeNextCommit,uint64 expiresAt,address prover)');
 
-/// Locked domain type string.
-const String kDomainTypeString = 'EIP712Domain(string name,string version)';
-
-/// Convert a hex string to a 32-byte array.
-Uint8List hexToBytes32(String hex) {
-  final b = w3.hexToBytes(hex);
-  if (b.length != 32) {
-    throw ArgumentError('expected 32 bytes');
-  }
-  return Uint8List.fromList(b);
-}
+/// Locked domain type hash.
+final Uint8List _kDomainTypeHash =
+    w3.keccakUtf8('EIP712Domain(string name,string version)');
 
 /// Convert bytes to a 0x-prefixed hex string.
 String bytesToHex0x(Uint8List data) => w3.bytesToHex(data, include0x: true);
-
-/// keccak256 of [kAttestTypeString].
-Uint8List typeHashAttest() => w3.keccakUtf8(kAttestTypeString);
-
-/// keccak256 of [kDomainTypeString].
-Uint8List typeHashDomain() => w3.keccakUtf8(kDomainTypeString);
 
 /// Domain separator using name+version only.
 Uint8List domainSeparator() {
@@ -78,15 +64,15 @@ Uint8List domainSeparator() {
   ]);
   final sink = LengthTrackingByteSink();
   encoder.encode([
-    typeHashDomain(),
+    _kDomainTypeHash,
     w3.keccakUtf8(kEip712Name),
     w3.keccakUtf8(kEip712Version),
   ], sink);
   return w3.keccak256(sink.asBytes());
 }
 
-/// Struct hash per EIP-712.
-Uint8List structHash(Attest a) {
+/// Final EIP-712 digest (0x1901 || domainSeparator || structHash).
+Uint8List hashAttest(Attest a) {
   final encoder = const TupleType([
     FixedBytes(32),
     FixedBytes(32),
@@ -102,28 +88,23 @@ Uint8List structHash(Attest a) {
   ]);
   final sink = LengthTrackingByteSink();
   encoder.encode([
-    typeHashAttest(),
+    kAttestTypeHash,
     a.userOpHash,
-    a.wallet,
-    a.entryPoint,
+    EthereumAddress.fromHex(a.wallet),
+    EthereumAddress.fromHex(a.entryPoint),
     a.chainId,
     a.pqcSigDigest,
     a.currentPkCommit,
     a.confirmNextCommit,
     a.proposeNextCommit,
-    a.expiresAt,
-    a.prover,
+    BigInt.from(a.expiresAt),
+    EthereumAddress.fromHex(a.prover),
   ], sink);
-  return w3.keccak256(sink.asBytes());
-}
-
-/// Final EIP-191 digest (0x1901 || domainSeparator || structHash).
-Uint8List hashAttest(Attest a) {
+  final structHash = w3.keccak256(sink.asBytes());
   final ds = domainSeparator();
-  final sh = structHash(a);
-  final out = Uint8List(2 + ds.length + sh.length);
+  final out = Uint8List(2 + ds.length + structHash.length);
   out.setRange(0, 2, const [0x19, 0x01]);
   out.setRange(2, 2 + ds.length, ds);
-  out.setRange(2 + ds.length, out.length, sh);
+  out.setRange(2 + ds.length, out.length, structHash);
   return w3.keccak256(out);
 }
