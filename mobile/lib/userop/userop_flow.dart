@@ -15,6 +15,7 @@ import '../userop/userop.dart';
 import '../userop/userop_signer.dart';
 import '../models/token.dart';
 import '../services/erc20.dart';
+import '../pqc/attest.dart';
 
 class UserOpFlow {
   final RpcClient rpc;
@@ -196,6 +197,16 @@ class UserOpFlow {
 
       op.signature =
           packHybridSignature(eSig, wSig, pk, confirmCommit, proposeCommit);
+
+      await _maybeSendToAggregator(
+        cfg: cfg,
+        userOpHash: userOpHash,
+        pqcSigDigest: w3.keccak256(op.signature),
+        currentCommit: currentCommitOnChain,
+        confirmCommit: confirmCommit,
+        proposeCommit: proposeCommit,
+        log: log,
+      );
 
       final pkBytes = pk.expand((e) => e).toList();
       record = {
@@ -424,6 +435,16 @@ class UserOpFlow {
       op.signature =
           packHybridSignature(eSig, wSig, pk, confirmCommit, proposeCommit);
 
+      await _maybeSendToAggregator(
+        cfg: cfg,
+        userOpHash: userOpHash,
+        pqcSigDigest: w3.keccak256(op.signature),
+        currentCommit: currentCommitOnChain,
+        confirmCommit: confirmCommit,
+        proposeCommit: proposeCommit,
+        log: log,
+      );
+
       final pkBytes = pk.expand((e) => e).toList();
       record = {
         'version': 1,
@@ -465,6 +486,44 @@ class UserOpFlow {
       await store.save(chainId, wallet.hex, record);
     }
     return uoh;
+  }
+
+  Future<void> _maybeSendToAggregator({
+    required Map<String, dynamic> cfg,
+    required Uint8List userOpHash,
+    required Uint8List pqcSigDigest,
+    required Uint8List currentCommit,
+    required Uint8List confirmCommit,
+    required Uint8List proposeCommit,
+    required void Function(String) log,
+  }) async {
+    final walletHex = cfg['walletAddress'] as String?;
+    final entryHex = cfg['entryPoint'] as String?;
+    final chainIdVal = cfg['chainId'];
+    if (walletHex == null || entryHex == null || chainIdVal == null) {
+      log('Aggregator path disabled: missing config');
+      return;
+    }
+    if (cfg['aggregatorEnabled'] != true) {
+      log('Aggregator path disabled');
+      return;
+    }
+    final att = Attest(
+      userOpHash: userOpHash,
+      wallet: walletHex,
+      entryPoint: entryHex,
+      chainId: BigInt.from(chainIdVal as int),
+      pqcSigDigest: pqcSigDigest,
+      currentPkCommit: currentCommit,
+      confirmNextCommit: confirmCommit,
+      proposeNextCommit: proposeCommit,
+      expiresAt: 0,
+      prover: (cfg['aggregator'] as String?) ??
+          '0x0000000000000000000000000000000000000000',
+    );
+    final digest = hashAttest(att);
+    log('hashAttest=${bytesToHex0x(digest)}');
+    // Aggregator HTTP path intentionally disabled.
   }
 
   Uint8List _encodeExecute(EthereumAddress to, BigInt value) {
