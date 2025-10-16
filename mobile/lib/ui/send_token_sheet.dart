@@ -14,6 +14,7 @@ class SendTokenSheet extends StatefulWidget {
   final AppSettings settings;
   final ActivityStore store;
   final EOATransactions eoa;
+  final Future<bool> Function(String reason) authenticate;
   const SendTokenSheet({
     super.key,
     required this.cfg,
@@ -22,6 +23,7 @@ class SendTokenSheet extends StatefulWidget {
     required this.settings,
     required this.store,
     required this.eoa,
+    required this.authenticate,
   });
 
   @override
@@ -120,6 +122,7 @@ class _SendTokenSheetState extends State<SendTokenSheet> {
           wantErc2612: usePermit,
           wantPermit2: usePermit2,
           settings: widget.settings,
+          ensureAuthorized: widget.authenticate,
           log: (m) => debugPrint(m),
           selectFees: (f) async => f,
         );

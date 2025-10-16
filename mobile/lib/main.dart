@@ -11,8 +11,10 @@ import 'crypto/mnemonic.dart';
 import 'services/storage.dart';
 import 'services/biometric.dart';
 import 'services/ecdsa_key_service.dart';
+import 'services/pin_service.dart';
 import 'userop/userop_flow.dart';
 import 'state/settings.dart';
+import 'ui/dialogs/pin_dialog.dart';
 import 'ui/settings_screen.dart';
 import 'ui/send_sheet.dart';
 import 'models/activity.dart';
@@ -37,6 +39,8 @@ class _PQCAppState extends State<PQCApp> {
   Map<String, dynamic>? _cfg;
   final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
   final BiometricService _biometric = BiometricService();
+  final PinService _pinService = const PinService();
+  final GlobalKey<NavigatorState> _navKey = GlobalKey<NavigatorState>();
   KeyMaterial? _keys;
   String _status = 'Ready';
   AppSettings _settings = const AppSettings();
@@ -45,37 +49,106 @@ class _PQCAppState extends State<PQCApp> {
   bool _hasUnlockedMnemonic = false;
   bool _unlockFailed = false;
   bool _saveFailed = false;
+  bool _pinInitialized = false;
 
   @override
   void initState() {
     super.initState();
     _theme = cyberpunkTheme();
-    _load();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
-  Future<bool> _authenticateForRead() async {
-    final canCheck = await _biometric.canCheck();
-    if (!canCheck) {
-      return true;
+  Future<bool> _ensurePinInitialized() async {
+    if (_pinInitialized) return true;
+    var hasPin = await _pinService.hasPin();
+    while (!hasPin) {
+      final navContext = _navKey.currentContext;
+      if (!mounted || navContext == null) {
+        return false;
+      }
+      final newPin = await showPinSetupDialog(navContext);
+      if (newPin == null) {
+        return false;
+      }
+      await _pinService.setPin(newPin);
+      hasPin = true;
+      ScaffoldMessenger.maybeOf(navContext)?.showSnackBar(
+        const SnackBar(content: Text('PIN set successfully.')),
+      );
     }
-    if (_hasUnlockedMnemonic) {
-      return true;
+    _pinInitialized = true;
+    return true;
+  }
+
+  Future<bool> _promptForPin(String reason) async {
+    final navContext = _navKey.currentContext;
+    if (!mounted || navContext == null) {
+      return false;
     }
-    final ok = await _biometric.authenticate(
-        reason: 'Unlock your EqualFi wallet mnemonic');
-    if (ok) {
+    for (var attempt = 0; attempt < 5; attempt++) {
+      final entered = await showPinEntryDialog(
+        navContext,
+        title: 'Enter wallet PIN',
+        helperText: reason,
+        errorText: attempt == 0 ? null : 'Incorrect PIN. Try again.',
+      );
+      if (entered == null) {
+        return false;
+      }
+      final ok = await _pinService.verify(entered);
+      if (ok) {
+        return true;
+      }
+    }
+    ScaffoldMessenger.maybeOf(navContext)?.showSnackBar(
+      const SnackBar(content: Text('Too many incorrect PIN attempts.')),
+    );
+    return false;
+  }
+
+  Future<bool> _authenticate({
+    required String reason,
+    bool rememberSession = false,
+  }) async {
+    final ready = await _ensurePinInitialized();
+    if (!ready) return false;
+
+    if (_settings.useBiometric) {
+      final canCheck = await _biometric.canCheck();
+      if (canCheck) {
+        final ok =
+            await _biometric.authenticate(reason: reason);
+        if (ok) {
+          if (rememberSession) {
+            _hasUnlockedMnemonic = true;
+          }
+          return true;
+        }
+      }
+    }
+
+    final ok = await _promptForPin(reason);
+    if (ok && rememberSession) {
       _hasUnlockedMnemonic = true;
     }
     return ok;
   }
 
-  Future<bool> _authenticateForWrite() async {
-    final canCheck = await _biometric.canCheck();
-    if (!canCheck) {
+  Future<bool> _authenticateForRead() async {
+    if (_hasUnlockedMnemonic) {
       return true;
     }
-    return await _biometric.authenticate(
-        reason: 'Authorize updating your wallet mnemonic');
+    return _authenticate(
+      reason: 'Unlock your EqualFi wallet mnemonic',
+      rememberSession: true,
+    );
+  }
+
+  Future<bool> _authenticateForWrite() {
+    return _authenticate(
+      reason: 'Authorize updating your wallet mnemonic',
+      rememberSession: true,
+    );
   }
 
   Future<({String? mnemonic, bool authorized})> _readMnemonicProtected() async {
@@ -96,13 +169,19 @@ class _PQCAppState extends State<PQCApp> {
     return true;
   }
 
+  Future<bool> _authenticateForAction(String reason) async {
+    return _authenticate(reason: reason, rememberSession: true);
+  }
+
   Future<void> _load() async {
     final cfg =
         jsonDecode(await rootBundle.loadString('assets/config.example.json'))
             as Map<String, dynamic>;
+    final settings = await _settingsStore.load();
     if (!mounted) return;
     setState(() {
       _cfg = cfg;
+      _settings = settings;
       _unlockFailed = false;
       _saveFailed = false;
     });
@@ -113,7 +192,7 @@ class _PQCAppState extends State<PQCApp> {
       setState(() {
         _keys = null;
         _unlockFailed = true;
-        _status = 'Biometric authentication required to unlock wallet seed.';
+        _status = 'Authentication required to unlock wallet seed.';
       });
       return;
     }
@@ -126,17 +205,15 @@ class _PQCAppState extends State<PQCApp> {
         setState(() {
           _keys = null;
           _saveFailed = true;
-          _status = 'Biometric authentication required to store wallet seed.';
+          _status = 'Authentication required to store wallet seed.';
         });
         return;
       }
     }
 
-    final s = await _settingsStore.load();
     if (!mounted) return;
     setState(() {
       _keys = km;
-      _settings = s;
       _status = 'Ready';
       _unlockFailed = false;
       _saveFailed = false;
@@ -144,10 +221,14 @@ class _PQCAppState extends State<PQCApp> {
   }
 
   Future<void> _openSettings() async {
-    await Navigator.of(context).push(MaterialPageRoute(
+    final nav = _navKey.currentState;
+    final navContext = _navKey.currentContext;
+    if (nav == null || navContext == null) return;
+    await nav.push(MaterialPageRoute(
         builder: (_) => SettingsScreen(
               settings: _settings,
               store: _settingsStore,
+              pinService: _pinService,
             )));
     final s = await _settingsStore.load();
     setState(() => _settings = s);
@@ -178,12 +259,14 @@ class _PQCAppState extends State<PQCApp> {
       settings: _settings,
       selectedAccount: _selectedAccount,
       setStatus: (s) => setState(() => _status = s),
+      authenticate: _authenticateForAction,
     );
   }
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      navigatorKey: _navKey,
       theme: _theme,
       home: Scaffold(
         appBar: AppBar(
@@ -241,12 +324,14 @@ class _Body extends StatefulWidget {
   final AppSettings settings;
   final void Function(String) setStatus;
   final WalletAccount selectedAccount;
+  final Future<bool> Function(String reason) authenticate;
   const _Body({
     required this.cfg,
     required this.keys,
     required this.settings,
     required this.setStatus,
     required this.selectedAccount,
+    required this.authenticate,
   });
 
   @override
@@ -385,6 +470,7 @@ class _BodyState extends State<_Body> {
         settings: widget.settings,
         store: activityStore,
         eoa: eoaTx,
+        authenticate: widget.authenticate,
       ),
     );
   }
@@ -450,6 +536,7 @@ class _BodyState extends State<_Body> {
         to: to,
         amountWei: amountWei,
         settings: widget.settings,
+        ensureAuthorized: widget.authenticate,
         log: widget.setStatus,
         selectFees: (f) => showFeeSheet(context, f),
       );

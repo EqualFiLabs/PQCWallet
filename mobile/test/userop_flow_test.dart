@@ -91,6 +91,7 @@ void main() {
       to: to,
       amountWei: BigInt.one,
       settings: const AppSettings(),
+      ensureAuthorized: (_) async => true,
       log: logs.add,
       selectFees: (f) async => f,
     );
@@ -102,6 +103,7 @@ void main() {
       to: to,
       amountWei: BigInt.one,
       settings: const AppSettings(),
+      ensureAuthorized: (_) async => true,
       log: logs.add,
       selectFees: (f) async => f,
     );
