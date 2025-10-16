@@ -19,6 +19,8 @@ import 'models/activity.dart';
 import 'services/activity_store.dart';
 import 'services/activity_poller.dart';
 import 'ui/activity_feed.dart';
+import 'services/eoa_transactions.dart';
+import 'ui/send_token_sheet.dart';
 
 void main() => runApp(const PQCApp());
 
@@ -260,6 +262,7 @@ class _BodyState extends State<_Body> {
   final ActivityStore activityStore = ActivityStore();
   late final ActivityPoller activityPoller;
   final ECDSAKeyService _ecdsaService = const ECDSAKeyService();
+  late final EOATransactions eoaTx = EOATransactions(rpc: rpc);
 
   @override
   void initState() {
@@ -334,8 +337,18 @@ class _BodyState extends State<_Body> {
           children: [
             Expanded(
                 child: ElevatedButton(
-                    onPressed: isPqc ? _sendEth : null,
-                    child: const Text('Send ETH (PQC)'))),
+                    onPressed: isPqc ? _sendEth : _sendEthEoa,
+                    child: Text(
+                        isPqc ? 'Send ETH (PQC)' : 'Send ETH (EOA)'))),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Row(
+          children: [
+            Expanded(
+                child: ElevatedButton(
+                    onPressed: _openTokenSheet,
+                    child: const Text('Token actions'))),
           ],
         ),
         const SizedBox(height: 8),
@@ -354,6 +367,63 @@ class _BodyState extends State<_Body> {
         ),
       ],
     );
+  }
+
+  Future<void> _openTokenSheet() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => SendTokenSheet(
+        cfg: widget.cfg,
+        flow: UserOpFlow(
+          rpc: rpc,
+          bundler: bundler,
+          store: pendingStore,
+          ecdsaService: _ecdsaService,
+        ),
+        keys: widget.keys,
+        settings: widget.settings,
+        store: activityStore,
+        eoa: eoaTx,
+      ),
+    );
+  }
+
+  Future<void> _sendEthEoa() async {
+    final to = recipientCtl.text.trim();
+    if (to.isEmpty) {
+      widget.setStatus('Recipient required for raw transaction.');
+      return;
+    }
+    final amtStr = amountCtl.text.trim();
+    try {
+      widget.setStatus('Signing raw transaction...');
+      final amountWei =
+          EtherAmount.fromBase10String(EtherUnit.ether, amtStr).getInWei;
+      final chainId = widget.cfg['chainId'] as int;
+      final txHash = await eoaTx.sendEth(
+        keys: widget.keys,
+        to: to,
+        amountWei: amountWei,
+        chainId: chainId,
+      );
+      final ts = DateTime.now().millisecondsSinceEpoch ~/ 1000;
+      await activityStore.upsertByUserOpHash(txHash, (existing) =>
+          existing?.copyWith(status: ActivityStatus.pending, txHash: txHash) ??
+          ActivityItem(
+            userOpHash: txHash,
+            to: to,
+            display: '$amtStr ETH',
+            ts: ts,
+            status: ActivityStatus.pending,
+            chainId: chainId,
+            opKind: 'eth',
+            txHash: txHash,
+          ));
+      widget.setStatus('Sent. TxHash: $txHash');
+    } catch (e) {
+      widget.setStatus('Error: $e');
+    }
   }
 
   Future<void> _sendEth() async {
