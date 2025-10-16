@@ -9,6 +9,8 @@ import 'services/rpc.dart';
 import 'services/bundler_client.dart';
 import 'crypto/mnemonic.dart';
 import 'services/storage.dart';
+import 'services/biometric.dart';
+import 'services/ecdsa_key_service.dart';
 import 'userop/userop_flow.dart';
 import 'state/settings.dart';
 import 'ui/settings_screen.dart';
@@ -20,6 +22,8 @@ import 'ui/activity_feed.dart';
 
 void main() => runApp(const PQCApp());
 
+enum WalletAccount { eoaClassic, pqcWallet }
+
 class PQCApp extends StatefulWidget {
   const PQCApp({super.key});
   @override
@@ -29,11 +33,16 @@ class PQCApp extends StatefulWidget {
 class _PQCAppState extends State<PQCApp> {
   late ThemeData _theme;
   Map<String, dynamic>? _cfg;
-  final storage = const FlutterSecureStorage();
+  final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
+  final BiometricService _biometric = BiometricService();
   KeyMaterial? _keys;
   String _status = 'Ready';
   AppSettings _settings = const AppSettings();
   final SettingsStore _settingsStore = SettingsStore();
+  WalletAccount _selectedAccount = WalletAccount.pqcWallet;
+  bool _hasUnlockedMnemonic = false;
+  bool _unlockFailed = false;
+  bool _saveFailed = false;
 
   @override
   void initState() {
@@ -42,20 +51,93 @@ class _PQCAppState extends State<PQCApp> {
     _load();
   }
 
+  Future<bool> _authenticateForRead() async {
+    final canCheck = await _biometric.canCheck();
+    if (!canCheck) {
+      return true;
+    }
+    if (_hasUnlockedMnemonic) {
+      return true;
+    }
+    final ok = await _biometric.authenticate(
+        reason: 'Unlock your EqualFi wallet mnemonic');
+    if (ok) {
+      _hasUnlockedMnemonic = true;
+    }
+    return ok;
+  }
+
+  Future<bool> _authenticateForWrite() async {
+    final canCheck = await _biometric.canCheck();
+    if (!canCheck) {
+      return true;
+    }
+    return await _biometric.authenticate(
+        reason: 'Authorize updating your wallet mnemonic');
+  }
+
+  Future<({String? mnemonic, bool authorized})> _readMnemonicProtected() async {
+    final allowed = await _authenticateForRead();
+    if (!allowed) {
+      return (mnemonic: null, authorized: false);
+    }
+    final value = await _secureStorage.read(key: 'mnemonic');
+    return (mnemonic: value, authorized: true);
+  }
+
+  Future<bool> _writeMnemonicProtected(String mnemonic) async {
+    final allowed = await _authenticateForWrite();
+    if (!allowed) {
+      return false;
+    }
+    await _secureStorage.write(key: 'mnemonic', value: mnemonic);
+    return true;
+  }
+
   Future<void> _load() async {
     final cfg =
         jsonDecode(await rootBundle.loadString('assets/config.example.json'))
             as Map<String, dynamic>;
-    setState(() => _cfg = cfg);
-    // Load or create mnemonic
-    final existing = await storage.read(key: 'mnemonic');
-    final km = deriveFromMnemonic(existing);
-    if (existing == null)
-      await storage.write(key: 'mnemonic', value: km.mnemonic);
+    if (!mounted) return;
+    setState(() {
+      _cfg = cfg;
+      _unlockFailed = false;
+      _saveFailed = false;
+    });
+
+    final readResult = await _readMnemonicProtected();
+    if (!readResult.authorized) {
+      if (!mounted) return;
+      setState(() {
+        _keys = null;
+        _unlockFailed = true;
+        _status = 'Biometric authentication required to unlock wallet seed.';
+      });
+      return;
+    }
+
+    final km = deriveFromMnemonic(readResult.mnemonic);
+    if (readResult.mnemonic == null) {
+      final saved = await _writeMnemonicProtected(km.mnemonic);
+      if (!saved) {
+        if (!mounted) return;
+        setState(() {
+          _keys = null;
+          _saveFailed = true;
+          _status = 'Biometric authentication required to store wallet seed.';
+        });
+        return;
+      }
+    }
+
     final s = await _settingsStore.load();
+    if (!mounted) return;
     setState(() {
       _keys = km;
       _settings = s;
+      _status = 'Ready';
+      _unlockFailed = false;
+      _saveFailed = false;
     });
   }
 
@@ -69,6 +151,34 @@ class _PQCAppState extends State<PQCApp> {
     setState(() => _settings = s);
   }
 
+  Widget _buildHomeBody() {
+    if (_cfg == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_unlockFailed || _saveFailed) {
+      return _LockedView(
+        message: _status,
+        onRetry: () {
+          setState(() {
+            _status = 'Ready';
+            _hasUnlockedMnemonic = false;
+          });
+          _load();
+        },
+      );
+    }
+    if (_keys == null) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    return _Body(
+      cfg: _cfg!,
+      keys: _keys!,
+      settings: _settings,
+      selectedAccount: _selectedAccount,
+      setStatus: (s) => setState(() => _status = s),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
@@ -80,14 +190,40 @@ class _PQCAppState extends State<PQCApp> {
             IconButton(
                 onPressed: _openSettings, icon: const Icon(Icons.settings))
           ],
+          bottom: PreferredSize(
+            preferredSize: const Size.fromHeight(48),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: ToggleButtons(
+                constraints: const BoxConstraints(minHeight: 36, minWidth: 140),
+                borderRadius: BorderRadius.circular(24),
+                isSelected: [
+                  _selectedAccount == WalletAccount.eoaClassic,
+                  _selectedAccount == WalletAccount.pqcWallet,
+                ],
+                onPressed: _keys == null
+                    ? null
+                    : (index) {
+                        final selected = index == 0
+                            ? WalletAccount.eoaClassic
+                            : WalletAccount.pqcWallet;
+                        setState(() => _selectedAccount = selected);
+                      },
+                children: const [
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 12),
+                    child: Text('EOA (Classic)'),
+                  ),
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 12),
+                    child: Text('PQC Wallet'),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ),
-        body: _cfg == null || _keys == null
-            ? const Center(child: CircularProgressIndicator())
-            : _Body(
-                cfg: _cfg!,
-                keys: _keys!,
-                settings: _settings,
-                setStatus: (s) => setState(() => _status = s)),
+        body: _buildHomeBody(),
         bottomNavigationBar: Container(
           padding: const EdgeInsets.all(12),
           child: Text(_status, textAlign: TextAlign.center),
@@ -102,11 +238,13 @@ class _Body extends StatefulWidget {
   final KeyMaterial keys;
   final AppSettings settings;
   final void Function(String) setStatus;
+  final WalletAccount selectedAccount;
   const _Body({
     required this.cfg,
     required this.keys,
     required this.settings,
     required this.setStatus,
+    required this.selectedAccount,
   });
 
   @override
@@ -121,6 +259,7 @@ class _BodyState extends State<_Body> {
   final PendingIndexStore pendingStore = PendingIndexStore();
   final ActivityStore activityStore = ActivityStore();
   late final ActivityPoller activityPoller;
+  final ECDSAKeyService _ecdsaService = const ECDSAKeyService();
 
   @override
   void initState() {
@@ -138,6 +277,13 @@ class _BodyState extends State<_Body> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isPqc = widget.selectedAccount == WalletAccount.pqcWallet;
+    final accountLabel =
+        isPqc ? 'PQC Wallet (4337)' : 'EOA (Classic)';
+    final walletAddress = isPqc
+        ? widget.cfg['walletAddress'] as String
+        : widget.keys.eoaAddress.hexEip55;
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
@@ -145,7 +291,16 @@ class _BodyState extends State<_Body> {
         const SizedBox(height: 16),
         _Card(child: SelectableText('ChainId: ${widget.cfg['chainId']}')),
         const SizedBox(height: 8),
-        _Card(child: SelectableText('Wallet: ${widget.cfg['walletAddress']}')),
+        _Card(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(accountLabel, style: theme.textTheme.labelMedium),
+              const SizedBox(height: 4),
+              SelectableText(walletAddress),
+            ],
+          ),
+        ),
         const SizedBox(height: 8),
         _Card(child: SelectableText('EntryPoint: ${widget.cfg['entryPoint']}')),
         const SizedBox(height: 8),
@@ -166,12 +321,21 @@ class _BodyState extends State<_Body> {
         TextField(
             controller: amountCtl,
             decoration: const InputDecoration(hintText: 'Amount ETH')),
+        if (!isPqc)
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text(
+              '4337 actions are available when the PQC wallet is selected.',
+              style: theme.textTheme.bodySmall,
+            ),
+          ),
         const SizedBox(height: 12),
         Row(
           children: [
             Expanded(
                 child: ElevatedButton(
-                    onPressed: _sendEth, child: const Text('Send ETH (PQC)'))),
+                    onPressed: isPqc ? _sendEth : null,
+                    child: const Text('Send ETH (PQC)'))),
           ],
         ),
         const SizedBox(height: 8),
@@ -179,12 +343,12 @@ class _BodyState extends State<_Body> {
           children: [
             Expanded(
                 child: ElevatedButton(
-                    onPressed: _showPending,
+                    onPressed: isPqc ? _showPending : null,
                     child: const Text('Show Pending'))),
             const SizedBox(width: 8),
             Expanded(
                 child: ElevatedButton(
-                    onPressed: _clearPending,
+                    onPressed: isPqc ? _clearPending : null,
                     child: const Text('Clear Pending'))),
           ],
         ),
@@ -193,6 +357,10 @@ class _BodyState extends State<_Body> {
   }
 
   Future<void> _sendEth() async {
+    if (widget.selectedAccount != WalletAccount.pqcWallet) {
+      widget.setStatus('Switch to the PQC Wallet to send smart-account transactions.');
+      return;
+    }
     try {
       widget.setStatus('Reading wallet state...');
       final wallet = EthereumAddress.fromHex(widget.cfg['walletAddress']);
@@ -201,7 +369,11 @@ class _BodyState extends State<_Body> {
       final amountWei =
           EtherAmount.fromBase10String(EtherUnit.ether, amtStr).getInWei;
 
-      final flow = UserOpFlow(rpc: rpc, bundler: bundler, store: pendingStore);
+      final flow = UserOpFlow(
+          rpc: rpc,
+          bundler: bundler,
+          store: pendingStore,
+          ecdsaService: _ecdsaService);
       final uoh = await flow.sendEth(
         cfg: widget.cfg,
         keys: widget.keys,
@@ -256,6 +428,37 @@ class _BodyState extends State<_Body> {
     final chainId = widget.cfg['chainId'];
     await pendingStore.clear(chainId, wallet.hex);
     widget.setStatus('pendingIndex cleared (canceled by user).');
+  }
+}
+
+class _LockedView extends StatelessWidget {
+  final String message;
+  final VoidCallback onRetry;
+  const _LockedView({required this.message, required this.onRetry});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.lock_outline,
+              size: 56, color: theme.colorScheme.secondary),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: 280,
+            child: Text(
+              message,
+              style: theme.textTheme.bodyMedium,
+              textAlign: TextAlign.center,
+            ),
+          ),
+          const SizedBox(height: 16),
+          ElevatedButton(onPressed: onRetry, child: const Text('Retry unlock')),
+        ],
+      ),
+    );
   }
 }
 

@@ -8,6 +8,7 @@ import '../services/bundler_client.dart';
 import '../services/rpc.dart';
 import '../services/storage.dart';
 import '../services/biometric.dart';
+import '../services/ecdsa_key_service.dart';
 import '../services/entrypoint.dart';
 import '../state/fees.dart';
 import '../state/settings.dart';
@@ -21,8 +22,14 @@ class UserOpFlow {
   final RpcClient rpc;
   final BundlerClient bundler;
   final PendingIndexStore store;
+  final ECDSAKeyService ecdsaService;
 
-  UserOpFlow({required this.rpc, required this.bundler, required this.store});
+  UserOpFlow({
+    required this.rpc,
+    required this.bundler,
+    required this.store,
+    ECDSAKeyService? ecdsaService,
+  }) : ecdsaService = ecdsaService ?? const ECDSAKeyService();
 
   Future<String> sendEth({
     required Map<String, dynamic> cfg,
@@ -176,22 +183,15 @@ class UserOpFlow {
       }
 
       // build new signature
-      final creds = EthPrivateKey(Uint8List.fromList(keys.ecdsaPriv));
-      final sigBytes = await creds.signToUint8List(userOpHash, chainId: null);
-      final eSig = w3.MsgSignature(
-        w3.bytesToInt(sigBytes.sublist(0, 32)),
-        w3.bytesToInt(sigBytes.sublist(32, 64)),
-        sigBytes[64],
-      );
+      final eSig = await ecdsaService.sign(userOpHash, keys.ecdsa);
 
       final index = nonceOnChain.toInt();
-      final seedI = hkdfIndex(Uint8List.fromList(keys.wotsMaster), index);
+      final seedI = hkdfIndex(keys.wotsMaster, index);
       final (sk, pk) = Wots.keygen(seedI);
       final wSig = Wots.sign(userOpHash, sk);
 
       final confirmCommit = nextCommitOnChain;
-      final nextNextSeed =
-          hkdfIndex(Uint8List.fromList(keys.wotsMaster), index + 2);
+      final nextNextSeed = hkdfIndex(keys.wotsMaster, index + 2);
       final (_, nextNextPk) = Wots.keygen(nextNextSeed);
       final proposeCommit = Wots.commitPk(nextNextPk);
 
@@ -413,22 +413,15 @@ class UserOpFlow {
         decision = 'fresh';
       }
 
-      final creds = EthPrivateKey(Uint8List.fromList(keys.ecdsaPriv));
-      final sigBytes = await creds.signToUint8List(userOpHash, chainId: null);
-      final eSig = w3.MsgSignature(
-        w3.bytesToInt(sigBytes.sublist(0, 32)),
-        w3.bytesToInt(sigBytes.sublist(32, 64)),
-        sigBytes[64],
-      );
+      final eSig = await ecdsaService.sign(userOpHash, keys.ecdsa);
 
       final index = nonceOnChain.toInt();
-      final seedI = hkdfIndex(Uint8List.fromList(keys.wotsMaster), index);
+      final seedI = hkdfIndex(keys.wotsMaster, index);
       final (sk, pk) = Wots.keygen(seedI);
       final wSig = Wots.sign(userOpHash, sk);
 
       final confirmCommit = nextCommitOnChain;
-      final nextNextSeed =
-          hkdfIndex(Uint8List.fromList(keys.wotsMaster), index + 2);
+      final nextNextSeed = hkdfIndex(keys.wotsMaster, index + 2);
       final (_, nextNextPk) = Wots.keygen(nextNextSeed);
       final proposeCommit = Wots.commitPk(nextNextPk);
 
