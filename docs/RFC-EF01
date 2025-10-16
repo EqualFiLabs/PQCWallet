@@ -1,0 +1,313 @@
+# RFC-EF01: EqualFlow Secure Smart Vault — Version 1.3
+
+### 1. Abstract
+
+
+EqualFi’s PQC Secure Smart Vault (“PQC Vault”) is an ERC-4337 smart account that coexists with a normal EOA on the same device. Every Vault operation requires an on-chain **ECDSA** signature and additionally binds a **post-quantum** WOTS+ signature with staged key rotation. Users can choose per transaction:
+
+* **Most secure (on-chain PQC verification)**: ECDSA and WOTS+ are both verified on chain. No registry is required. Gas is higher, especially on L1.
+* **Attested (cheaper)**: the device verifies WOTS+ locally and attaches an **EIP-712 attestation** from an allow-listed prover. The wallet skips heavy on-chain PQC verification. Requires a `ProverRegistry` entry.
+
+New in v1.3: **Passkey** and **OAuth** powered “Invisible Wallet” onboarding as a **user-selectable alternative** to seed backup. Users may pick **Seed Mode** (classic mnemonic) or **Passkey Mode** (seedless, WebAuthn + OAuth key unwrapping). On-chain invariants remain unchanged: ECDSA verification is always performed on chain; hybrid payload length is locked at 4417 bytes; nonce equals the WOTS index; rotation is atomic and forward-only.
+
+
+
+### 2. Roles
+
+---
+
+
+| Role                             | Responsibility                                                                                                   |
+| -------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| End User                         | Operates the app and authorizes actions.                                                                         |
+| **EOA (device keystore)**        | Classical account for daily use; pays initial Vault deployment; always signs ECDSA for both EOA and Vault flows. |
+| **PQC Vault (ERC-4337 account)** | Validates ECDSA; performs PQC checks (on-chain or attested); enforces nonce and rotation.                        |
+| EntryPoint                       | Invokes `validateUserOp` and executes the operation.                                                             |
+| **ProverRegistry**               | Allow-lists attester addresses permitted in the attested path.                                                   |
+| **Aggregator/Attester**          | Off-chain verifier that issues an EIP-712 **Attest** signature. Can run on device.                               |
+| **Factory (CREATE2)**            | Deterministic Vault deployment using `{owner, currentCommit, nextCommit, registry}`.                             |
+| Mobile App (Flutter)             | Key custody, onboarding (Seed or Passkey), backups, WOTS scheduling, security-mode choice, journaling.           |
+| **Identity Provider (IdP)**      | OAuth provider used to fetch an encrypted backup blob in Passkey Mode. The IdP never receives raw keys.          |
+| Indexer/Subgraph (optional)      | Rotation and attestation observability.                                                                          |
+| Verifying Paymaster (future)     | Optional gas sponsor for attested path (not in v1.3).                                                            |
+---
+
+### 3. Policy Invariants
+
+
+| Name                               | Rule                                                                                                                    |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| **ECDSA_REQUIRED**                 | Always verify ECDSA on chain before any PQC logic. Reject early on failure.                                             |
+| **NONCE_IS_WOTS_INDEX**            | `nonce == wotsIndex` with monotonic enforcement in v1.3.                                                                |
+| **HYBRID_PAYLOAD_LENGTH**          | Exactly `4417` bytes: `65 (ecdsa) + 2144 (wotsSig) + 2144 (wotsPk) + 32 (confirmNext) + 32 (proposeNext)`.              |
+| **COMMIT_FUNCTION**                | `commit(pk) = keccak256(wotsPkBytes)` over a canonical byte encoding.                                                   |
+| **ROTATION_RULE**                  | On success only: require `confirmNext == nextCommit`; then `current = next; next = propose`.                            |
+| **AGGREGATOR_DOMAIN**              | EIP-712 domain `{name: "EqualFiPQCProver", version: "1"}`.                                                              |
+| **PQC_DIGEST_V1**                  | `pqcSigDigest = keccak256(abi.encodePacked(wotsSig, wotsPk))`.                                                          |
+| **REGISTRY_REQUIRED_FOR_ATTESTED** | True. On-chain PQC path does not require a registry.                                                                    |
+| **FORCE_ON_CHAIN_SWITCH**          | Owner-gated boolean. When true, ignore attestations.                                                                    |
+| **DEFAULT_NETWORK_STANCE**         | L2-first UX. L1 flows gated with strong cost warnings.                                                                  |
+| **OWNER_AUTH_KIND**                | One of `{SEED, PASSKEY}` chosen at onboarding. This is an **app-level** setting. On-chain semantics do not change.      |
+| **PASSKEY_SEEDLESS**               | In Passkey Mode the user is not shown a mnemonic. The ECDSA secret is wrapped and recoverable via Passkey + OAuth only. |
+| **OAUTH_ENCRYPTED_ONLY**           | OAuth retrieves an encrypted backup blob. IdP never sees or can derive any secret key material.                         |
+
+
+### 4. State Model
+
+---
+
+**On-chain (contract) persistent state:**
+
+```solidity
+struct PQCState {
+  address owner;               // ECDSA owner (the EOA)
+  bytes32 currentCommit;       // commit(current WOTS pk)
+  bytes32 nextCommit;          // commit(next WOTS pk)
+  bool    forceOnChainVerify;  // incident switch
+  uint64  nextExpectedIndex;   // monotonic WOTS index (nonce)
+  mapping(uint64 => bool) used;// reserved for future sparse mode
+  address proverRegistry;      // allow-list registry
+}
+```
+
+**Off-chain (app) custody state:**
+
+* `OwnerAuthKind ∈ {SEED, PASSKEY}`
+* **Seed Mode**
+
+  * `mnemonic`: stored encrypted locally; optional user-managed offline backup.
+  * `ecdsaPriv`: held in device keystore, derivable from `mnemonic`.
+* **Passkey Mode**
+
+  * `passkeyCred` (WebAuthn credential id + COSE pubkey) created for EqualFi RP ID.
+  * `wrap(blob)`: ECDSA private key is generated, split and encrypted.
+
+    * `encPriv = AEAD_Encrypt(ecdsaPriv, KEK)`.
+    * `KEK` is derived from passkey signatures through a PAKE-style or envelope protocol; the exact construction is implementation-specific and off-chain.
+  * `cloudVault`: stores `encPriv` and non-sensitive metadata behind OAuth.
+  * OAuth only fetches `encPriv`; passkey interaction unwraps it on device. The IdP never unwraps or observes `ecdsaPriv`.
+
+#### 4.1 Structs / Schemas
+
+**Hybrid signature (packed, on chain):**
+
+```
+bytes[4417] =
+  ecdsaSig[65] ||
+  wotsSig[2144] ||
+  wotsPk[2144] ||
+  confirmNextCommit[32] ||
+  proposeNextCommit[32]
+```
+
+**EIP-712 Attest (message):**
+
+```
+Attest {
+  bytes32 userOpHash;
+  address wallet;
+  address entryPoint;
+  uint256 chainId;
+  bytes32 pqcSigDigest;        // keccak256(wotsSig || wotsPk)
+  bytes32 currentPkCommit;     // == currentCommit
+  bytes32 confirmNextCommit;   // == nextCommit
+  bytes32 proposeNextCommit;   // next staged value
+  uint64  expiresAt;           // >= block.timestamp
+  address prover;              // attester address
+}
+```
+
+**Passkey meta (off chain, example):**
+
+```
+PasskeyBackupMeta {
+  rpId: string;                // relying party identifier
+  credId: base64url;           // WebAuthn credential id
+  coseAlg: int;                // COSE algorithm of passkey public key
+  oauthProvider: "apple" | "google" | "github" | ...
+  encPrivUrl: https://...      // opaque URL for encrypted ECDSA blob
+}
+```
+
+### 5. Primary Flow A
+
+---
+
+**Provision accounts and pick custody mode (EOA + optional PQC Vault).**
+
+#### 5.1 EOA onboarding with choice of **Seed** or **Passkey**
+
+* **Inputs:** none.
+* **Preconditions:** device keystore and network available; user accepts ToS.
+
+**Option A — Seed Mode**
+
+1. Generate mnemonic and ECDSA key.
+2. Force encrypted local backup; offer printable or cold-storage options.
+3. Mark `OwnerAuthKind = SEED`.
+
+**Option B — Passkey Mode (Invisible Wallet)**
+
+1. Create a WebAuthn **passkey** for EqualFi’s RP ID.
+2. Generate ECDSA key. User is not shown a mnemonic.
+3. Wrap ECDSA private key into `encPriv` using a passkey-gated KEK.
+4. Authenticate with OAuth and upload only `encPriv` and `PasskeyBackupMeta` to `cloudVault`.
+5. Mark `OwnerAuthKind = PASSKEY`.
+
+Outputs in both options: EOA address, app state `EOA_READY`.
+
+#### 5.2 Offer and deploy the **PQC Vault**
+
+* **Inputs:** staged `currentPk` and `nextPk` for WOTS+, `owner = EOA`, `proverRegistry`.
+* **Preconditions:** EOA is funded for deployment.
+* **Steps:** compute `currentCommit` and `nextCommit`; deploy via Factory (CREATE2); store Vault address; present dual-account UI.
+* **Outputs:** Vault address; factory deployment events.
+
+### 6. Primary Flow B
+
+---
+
+**Submit a Vault transaction with per-transaction security mode.**
+
+#### 6.1 Mode A — **Most secure (on-chain PQC verify)**
+
+* **Inputs:** `userOp` with the 4417-byte hybrid signature; no `aggregatorData`.
+* **Preconditions:** `nonce == nextExpectedIndex`.
+* **Steps:** on chain ECDSA check; verify WOTS+ on chain; `confirmNext == nextCommit`; rotate; increment index.
+* **Outputs:** operation executes; rotation event emitted.
+
+#### 6.2 Mode B — **Attested (cheaper)**
+
+* **Inputs:** `userOp` with hybrid signature and `aggregatorData = abi.encode(prover, expiresAt, sig65)`.
+* **Preconditions:** `forceOnChainVerify == false`; `prover` allow-listed; `expiresAt` in future.
+* **Steps:** ECDSA check; verify EIP-712 Attest; ensure bindings `{wallet, entryPoint, chainId, commits, pqcSigDigest}`; skip heavy PQC verify; rotate; increment index; emit attestation event.
+* **Outputs:** operation executes; attestation event emitted.
+
+#### 6.3 Passkey recovery (off chain, Passkey Mode only)
+
+* **Trigger:** new device or re-install.
+* **Steps:** OAuth sign-in; fetch `encPriv` from `cloudVault`; perform WebAuthn assertion with the passkey; derive KEK; decrypt `encPriv` to recover `ecdsaPriv` into device keystore.
+* **Outputs:** EOA available; Vault control restored; no mnemonic revealed at any time.
+
+### 7. Integration (Required APIs / Interfaces)
+
+---
+
+* **ERC-4337 EntryPoint**: standard `validateUserOp`.
+* **PQC Vault**: `owner()`, `currentCommit()`, `nextCommit()`, `forceOnChainVerify()`, `setForceOnChainVerify(bool)`.
+* **ProverRegistry**: `isAllowed(address) -> bool`, `set(address,bool)` (owner only).
+* **Factory (CREATE2)**: `deploy(owner, currentCommit, nextCommit, registry) -> address`.
+* **Attestation EIP-712**: domain `{name:"EqualFiPQCProver", version:"1"}`, struct `Attest`.
+* **SDK (TS)**: `packHybridSignature(...) -> 0x..`, typed-data encoders for Attest.
+* **Passkey (off chain)**: WebAuthn create/assert; COSE key handling; platform authenticators.
+* **OAuth (off chain)**: provider login, token refresh, fetch of `encPriv` only.
+
+#### 7.1 Data additions
+
+* None on chain. Passkey and OAuth are strictly off-chain custody features.
+
+#### 7.2 Batch operation API
+
+* None beyond ERC-4337 bundlers. Monotonic indices avoid parallel WOTS usage in v1.3.
+
+#### 7.3 Finalization
+
+* Rotation occurs inside validation on success. No separate finalize step.
+
+### 8. Deterministic Derivations / Addressing
+
+---
+
+* **CREATE2 salt**: derived from `{owner, currentCommit, nextCommit}` for reproducible Vault addresses.
+* **Commitments**: `bytes32 commit = keccak256(wotsPkBytes)` with canonical encoding.
+* **pqcSigDigest**: `keccak256(abi.encodePacked(wotsSig, wotsPk))`.
+* **Binding**: Attest binds `{userOpHash, wallet, entryPoint, chainId, commits}`.
+
+### 9. Public Inputs / Data Binding
+
+---
+
+* **Chain binding**: `chainId` in Attest equals `block.chainid`.
+* **Entry point binding**: must match configured EntryPoint.
+* **Wallet binding**: `wallet == address(this)`.
+* **Prover binding**: recovered signer equals `prover`, and `prover` is allow-listed.
+* **Freshness**: `expiresAt >= block.timestamp`.
+* **Commit match**: `confirmNextCommit == nextCommit` at validation time.
+* **Passkey RP binding (off chain)**: passkey assertions are scoped to EqualFi RP ID. IdP tokens do not authorize decryption.
+
+### 10. Reward / Fee / Allocation Rules
+
+---
+
+* **Fees**: standard ERC-4337 gas, paid by user or a future paymaster.
+* **Cost profile**: on-chain PQC verify consumes multi-million gas; acceptable on L2; expensive on L1.
+* **Attested mode**: cheaper validation; registry management is an operational concern.
+* **Ordering**: `validate → (rotation) → execute → emit`.
+
+### 11. Events
+
+---
+
+* `OwnerChanged(address indexed oldOwner, address indexed newOwner)`
+* `PQCCommitsRotated(bytes32 currentCommit, bytes32 nextCommit, bytes32 proposedNext)`
+* `ProverAttestationUsed(address indexed prover, uint64 expiresAt, bytes32 pqcSigDigest)`
+* `ForceOnChainVerifyToggled(bool newValue)`
+
+### 12. Security & Privacy Considerations
+
+---
+
+* **AuthN**: ECDSA owner check is mandatory for every operation.
+* **Replay resistance**: nonce equals WOTS index; contract rejects reuse; app journals pending ops.
+* **Rollback resistance**: `confirmNext == nextCommit` and atomic rotation.
+* **Attester trust boundary**: allow-listed prover, short `expiresAt`, full binding to wallet, chain, and PQC digest. Owner can toggle `forceOnChainVerify = true` during incidents.
+* **Seed Mode risks**: seed handling and exfiltration; mitigated by encrypted storage and explicit backup flow.
+* **Passkey Mode risks**: IdP compromise cannot decrypt `encPriv`; passkeys are phishing-resistant through RP ID binding; support multi-device passkeys to reduce lockout risk.
+* **OAuth scope**: retrieve encrypted blobs only. No secret handling on IdP.
+* **Key loss**:
+
+  * Seed Mode: recover via mnemonic.
+  * Passkey Mode: recover via passkey on any enrolled device and OAuth to fetch `encPriv`. Provide emergency recovery codes for passkey ecosystem lockouts.
+* **DoS**: on-chain PQC path guarantees liveness without external services.
+
+### 13. Testing & Verification
+
+---
+
+* **Unit (contracts)**
+
+  * ECDSA failure rejects early.
+  * Mode A happy path rotates and increments index.
+  * Mode B happy path with valid registry and non-expired attestation.
+  * Negative: expired attestation, not-allowed prover, digest mismatch, nonce reuse, bad commit confirmation, force-switch ignoring `aggregatorData`.
+
+* **Fuzz (contracts)**
+
+  * Random `proposeNextCommit` sequences cannot roll back.
+  * Nonce reuse or out-of-order indices never pass.
+
+* **E2E (mobile)**
+
+  * Seed Mode: backup, restore, and send in both security modes.
+  * Passkey Mode: create passkey, wrap key, OAuth fetch of `encPriv`, passkey unwrap on new device, send in both security modes.
+  * Crash-safe journal prevents index reuse on restart.
+  * L1 warning gates and L2 default behavior verified.
+
+* **Acceptance**
+
+  * `forge test -vv` passes with invariants and fuzz.
+  * Demo on Base testnet: Mode A then Mode B with correct events and state.
+  * Passkey recovery restores control without ever revealing a mnemonic.
+
+### 14. Rationale and Summary
+
+---
+
+The design keeps on-chain correctness simple and auditable while giving users a practical choice at creation:
+
+* **Seed Mode** for users who want classic self-custody and explicit backups.
+* **Passkey Mode** for users who want seedless convenience, OAuth delivery of encrypted blobs, and passkey-gated unwrapping, without changing any on-chain security invariants.
+
+Per transaction, users can opt into **maximum assurance** (on-chain PQC) or **lower cost** (attested) with a flip of a switch. Rotation is always forward-only, nonces are one-time by construction, and ECDSA authorization remains the first line of defense.
+
+*Design mantra: prove intent twice, rotate once, never rewind.*
