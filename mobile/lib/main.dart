@@ -11,10 +11,12 @@ import 'crypto/mnemonic.dart';
 import 'services/storage.dart';
 import 'services/biometric.dart';
 import 'services/ecdsa_key_service.dart';
+import 'services/wallet_secret.dart';
 import 'services/pin_service.dart';
 import 'userop/userop_flow.dart';
 import 'state/settings.dart';
 import 'ui/dialogs/pin_dialog.dart';
+import 'ui/dialogs/import_private_key_dialog.dart';
 import 'ui/settings_screen.dart';
 import 'ui/send_sheet.dart';
 import 'models/activity.dart';
@@ -23,6 +25,7 @@ import 'services/activity_poller.dart';
 import 'ui/activity_feed.dart';
 import 'services/eoa_transactions.dart';
 import 'ui/send_token_sheet.dart';
+import 'ui/wallet_setup.dart';
 
 void main() => runApp(const PQCApp());
 
@@ -35,6 +38,8 @@ class PQCApp extends StatefulWidget {
 }
 
 class _PQCAppState extends State<PQCApp> {
+  static const String _walletSecretKey = 'mnemonic';
+
   late ThemeData _theme;
   Map<String, dynamic>? _cfg;
   final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
@@ -50,6 +55,9 @@ class _PQCAppState extends State<PQCApp> {
   bool _unlockFailed = false;
   bool _saveFailed = false;
   bool _pinInitialized = false;
+  bool _needsWalletSetup = false;
+  bool _walletSetupBusy = false;
+  String? _walletSetupError;
 
   @override
   void initState() {
@@ -139,33 +147,43 @@ class _PQCAppState extends State<PQCApp> {
       return true;
     }
     return _authenticate(
-      reason: 'Unlock your EqualFi wallet mnemonic',
+      reason: 'Unlock your EqualFi wallet secret',
       rememberSession: true,
     );
   }
 
   Future<bool> _authenticateForWrite() {
     return _authenticate(
-      reason: 'Authorize updating your wallet mnemonic',
+      reason: 'Authorize updating your wallet secret',
       rememberSession: true,
     );
   }
 
-  Future<({String? mnemonic, bool authorized})> _readMnemonicProtected() async {
+  Future<({WalletSecret? secret, bool authorized, bool hadCorruptData})>
+      _readWalletSecretProtected() async {
     final allowed = await _authenticateForRead();
     if (!allowed) {
-      return (mnemonic: null, authorized: false);
+      return (secret: null, authorized: false, hadCorruptData: false);
     }
-    final value = await _secureStorage.read(key: 'mnemonic');
-    return (mnemonic: value, authorized: true);
+    final value = await _secureStorage.read(key: _walletSecretKey);
+    if (value == null) {
+      return (secret: null, authorized: true, hadCorruptData: false);
+    }
+    try {
+      final secret = WalletSecretCodec.decode(value);
+      return (secret: secret, authorized: true, hadCorruptData: false);
+    } on ArgumentError {
+      return (secret: null, authorized: true, hadCorruptData: true);
+    }
   }
 
-  Future<bool> _writeMnemonicProtected(String mnemonic) async {
+  Future<bool> _writeWalletSecretProtected(WalletSecret secret) async {
     final allowed = await _authenticateForWrite();
     if (!allowed) {
       return false;
     }
-    await _secureStorage.write(key: 'mnemonic', value: mnemonic);
+    final encoded = WalletSecretCodec.encode(secret);
+    await _secureStorage.write(key: _walletSecretKey, value: encoded);
     return true;
   }
 
@@ -186,29 +204,47 @@ class _PQCAppState extends State<PQCApp> {
       _saveFailed = false;
     });
 
-    final readResult = await _readMnemonicProtected();
+    final readResult = await _readWalletSecretProtected();
     if (!readResult.authorized) {
       if (!mounted) return;
       setState(() {
         _keys = null;
         _unlockFailed = true;
-        _status = 'Authentication required to unlock wallet seed.';
+        _status = 'Authentication required to unlock wallet secret.';
+        _needsWalletSetup = false;
+        _walletSetupBusy = false;
+        _walletSetupError = null;
       });
       return;
     }
 
-    final km = deriveFromMnemonic(readResult.mnemonic);
-    if (readResult.mnemonic == null) {
-      final saved = await _writeMnemonicProtected(km.mnemonic);
-      if (!saved) {
-        if (!mounted) return;
-        setState(() {
-          _keys = null;
-          _saveFailed = true;
-          _status = 'Authentication required to store wallet seed.';
-        });
-        return;
-      }
+    if (readResult.secret == null) {
+      if (!mounted) return;
+      setState(() {
+        _keys = null;
+        _needsWalletSetup = true;
+        _walletSetupBusy = false;
+        _walletSetupError = readResult.hadCorruptData
+            ? 'Stored wallet secret was invalid. Please set up your wallet again.'
+            : null;
+        _status = 'Wallet setup required.';
+      });
+      return;
+    }
+
+    KeyMaterial km;
+    try {
+      km = _deriveKeyMaterialFromSecret(readResult.secret!);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _keys = null;
+        _needsWalletSetup = true;
+        _walletSetupBusy = false;
+        _walletSetupError = 'Failed to load wallet: $e';
+        _status = 'Wallet setup required.';
+      });
+      return;
     }
 
     if (!mounted) return;
@@ -217,7 +253,19 @@ class _PQCAppState extends State<PQCApp> {
       _status = 'Ready';
       _unlockFailed = false;
       _saveFailed = false;
+      _needsWalletSetup = false;
+      _walletSetupBusy = false;
+      _walletSetupError = null;
     });
+  }
+
+  KeyMaterial _deriveKeyMaterialFromSecret(WalletSecret secret) {
+    switch (secret.type) {
+      case WalletSecretType.mnemonic:
+        return deriveFromMnemonic(secret.value);
+      case WalletSecretType.privateKey:
+        return deriveFromPrivateKey(secret.value);
+    }
   }
 
   Future<void> _openSettings() async {
@@ -234,9 +282,115 @@ class _PQCAppState extends State<PQCApp> {
     setState(() => _settings = s);
   }
 
+  Future<void> _handleCreateNewWallet() async {
+    setState(() {
+      _walletSetupBusy = true;
+      _walletSetupError = null;
+      _status = 'Generating new wallet...';
+    });
+    final km = deriveFromMnemonic(null);
+    final mnemonic = km.mnemonic;
+    if (mnemonic == null) {
+      if (!mounted) return;
+      setState(() {
+        _walletSetupBusy = false;
+        _walletSetupError = 'Failed to derive mnemonic.';
+        _status = 'Wallet setup required.';
+      });
+      return;
+    }
+    final saved =
+        await _writeWalletSecretProtected(WalletSecret.mnemonic(mnemonic));
+    if (!mounted) return;
+    if (!saved) {
+      setState(() {
+        _walletSetupBusy = false;
+        _walletSetupError =
+            'Authentication required to store wallet secret.';
+        _status = 'Wallet setup required.';
+      });
+      return;
+    }
+    setState(() {
+      _keys = km;
+      _status = 'Ready';
+      _needsWalletSetup = false;
+      _walletSetupBusy = false;
+      _walletSetupError = null;
+      _unlockFailed = false;
+      _saveFailed = false;
+    });
+  }
+
+  Future<void> _handleImportPrivateKey() async {
+    final navContext = _navKey.currentContext;
+    if (navContext == null) {
+      return;
+    }
+    setState(() {
+      _walletSetupBusy = true;
+      _walletSetupError = null;
+      _status = 'Waiting for private key...';
+    });
+    final privateKey = await showImportPrivateKeyDialog(navContext);
+    if (!mounted) return;
+    if (privateKey == null) {
+      setState(() {
+        _walletSetupBusy = false;
+        _status = 'Wallet setup required.';
+      });
+      return;
+    }
+    try {
+      final km = deriveFromPrivateKey(privateKey);
+      final saved = await _writeWalletSecretProtected(
+          WalletSecret.privateKey(privateKey));
+      if (!mounted) return;
+      if (!saved) {
+        setState(() {
+          _walletSetupBusy = false;
+          _walletSetupError =
+              'Authentication required to store wallet secret.';
+          _status = 'Wallet setup required.';
+        });
+        return;
+      }
+      setState(() {
+        _keys = km;
+        _status = 'Ready';
+        _needsWalletSetup = false;
+        _walletSetupBusy = false;
+        _walletSetupError = null;
+        _unlockFailed = false;
+        _saveFailed = false;
+      });
+    } on ArgumentError catch (e) {
+      final message = e.message ?? e.toString();
+      setState(() {
+        _walletSetupBusy = false;
+        _walletSetupError = message.toString();
+        _status = 'Wallet setup required.';
+      });
+    } catch (e) {
+      setState(() {
+        _walletSetupBusy = false;
+        _walletSetupError = 'Failed to import key: $e';
+        _status = 'Wallet setup required.';
+      });
+    }
+  }
+
   Widget _buildHomeBody() {
     if (_cfg == null) {
       return const Center(child: CircularProgressIndicator());
+    }
+    if (_needsWalletSetup) {
+      return WalletSetupView(
+        busy: _walletSetupBusy,
+        errorMessage: _walletSetupError,
+        onCreateNewWallet: () => _handleCreateNewWallet(),
+        onImportPrivateKey: () => _handleImportPrivateKey(),
+      );
     }
     if (_unlockFailed || _saveFailed) {
       return _LockedView(
@@ -253,8 +407,14 @@ class _PQCAppState extends State<PQCApp> {
     if (_keys == null) {
       return const Center(child: CircularProgressIndicator());
     }
+    final effectiveCfg = Map<String, dynamic>.from(_cfg!);
+    final customRpc = _settings.customRpcUrl?.trim();
+    if (customRpc != null && customRpc.isNotEmpty) {
+      effectiveCfg['rpcUrl'] = customRpc;
+    }
     return _Body(
-      cfg: _cfg!,
+      key: ValueKey<String>(effectiveCfg['rpcUrl'] as String),
+      cfg: effectiveCfg,
       keys: _keys!,
       settings: _settings,
       selectedAccount: _selectedAccount,
@@ -326,6 +486,7 @@ class _Body extends StatefulWidget {
   final WalletAccount selectedAccount;
   final Future<bool> Function(String reason) authenticate;
   const _Body({
+    super.key,
     required this.cfg,
     required this.keys,
     required this.settings,

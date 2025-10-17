@@ -4,6 +4,8 @@ import 'package:bip39/bip39.dart' as bip39;
 import 'package:web3dart/crypto.dart' as w3crypto;
 import 'package:web3dart/web3dart.dart';
 
+import 'wallet_secret.dart';
+
 class ECDSAKeyPair {
   final Uint8List privateKey;
   final Uint8List publicKey;
@@ -49,6 +51,28 @@ class ECDSAKeyService {
         publicKey: publicKey,
         address: address,
       ),
+    );
+  }
+
+  ECDSAKeyPair deriveFromPrivateKeyHex(String privateKeyHex) {
+    final normalized = normalizePrivateKeyHex(privateKeyHex);
+    final bytes = Uint8List.fromList(w3crypto.hexToBytes(normalized));
+    return deriveFromPrivateKeyBytes(bytes);
+  }
+
+  ECDSAKeyPair deriveFromPrivateKeyBytes(Uint8List privateKey) {
+    if (privateKey.length != 32) {
+      throw ArgumentError('Private key must be 32 bytes.');
+    }
+    final privCopy = Uint8List.fromList(privateKey);
+    final publicKey = Uint8List.fromList(
+      w3crypto.privateKeyBytesToPublic(privCopy),
+    );
+    final address = EthereumAddress.fromPublicKey(publicKey);
+    return ECDSAKeyPair(
+      privateKey: privCopy,
+      publicKey: publicKey,
+      address: address,
     );
   }
 

@@ -22,11 +22,25 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   late AppSettings _s;
   bool _checkingBiometric = false;
+  late TextEditingController _rpcController;
+  String? _rpcError;
+  bool _savingRpc = false;
 
   @override
   void initState() {
     super.initState();
     _s = widget.settings;
+    _rpcController = TextEditingController(text: _s.customRpcUrl ?? '');
+    _rpcController.addListener(() {
+      if (!mounted) return;
+      setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _rpcController.dispose();
+    super.dispose();
   }
 
   Future<void> _toggleBiometricForTestnets(bool v) async {
@@ -102,6 +116,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  Future<void> _saveCustomRpcOverride() async {
+    final input = _rpcController.text.trim();
+    if (input.isNotEmpty) {
+      final parsed = Uri.tryParse(input);
+      if (parsed == null ||
+          (parsed.scheme != 'http' && parsed.scheme != 'https')) {
+        setState(() => _rpcError = 'Enter a valid http(s) endpoint.');
+        return;
+      }
+    }
+    setState(() {
+      _savingRpc = true;
+      _rpcError = null;
+      _s = _s.copyWith(customRpcUrl: input.isEmpty ? null : input);
+    });
+    await widget.store.save(_s);
+    if (!mounted) return;
+    setState(() => _savingRpc = false);
+    final message = input.isEmpty
+        ? 'RPC reset to bundled config.'
+        : 'Custom RPC endpoint saved.';
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -127,6 +166,60 @@ class _SettingsScreenState extends State<SettingsScreen> {
             subtitle: const Text('Default unlock method.'),
             trailing: const Icon(Icons.chevron_right),
             onTap: _changePin,
+          ),
+          const Divider(),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+            child: Text(
+              'Network',
+              style: Theme.of(context).textTheme.titleMedium,
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: TextField(
+              controller: _rpcController,
+              keyboardType: TextInputType.url,
+              autocorrect: false,
+              enableSuggestions: false,
+              decoration: InputDecoration(
+                labelText: 'Custom RPC endpoint',
+                hintText: 'https://base-sepolia.example',
+                helperText:
+                    'Leave blank to use the bundled Base config.',
+                errorText: _rpcError,
+                suffixIcon: _rpcController.text.isEmpty
+                    ? null
+                    : IconButton(
+                        icon: const Icon(Icons.clear),
+                        onPressed: _savingRpc
+                            ? null
+                            : () {
+                                _rpcController.clear();
+                                setState(() => _rpcError = null);
+                              },
+                      ),
+              ),
+              onChanged: (_) => setState(() => _rpcError = null),
+              onSubmitted: (_) => _saveCustomRpcOverride(),
+              enabled: !_savingRpc,
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+            child: FilledButton.icon(
+              onPressed: _savingRpc ? null : _saveCustomRpcOverride,
+              icon: Icon(
+                _rpcController.text.trim().isEmpty
+                    ? Icons.replay
+                    : Icons.save,
+              ),
+              label: Text(
+                _rpcController.text.trim().isEmpty
+                    ? 'Use default RPC'
+                    : 'Save RPC override',
+              ),
+            ),
           ),
         ],
       ),

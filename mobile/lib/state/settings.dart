@@ -2,27 +2,40 @@ import 'dart:convert';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 class AppSettings {
+  static const Object _noChange = Object();
+
   final bool useBiometric;
   final bool biometricOnTestnets;
+  final String? customRpcUrl;
   const AppSettings({
     this.useBiometric = false,
     this.biometricOnTestnets = false,
+    this.customRpcUrl,
   });
 
-  AppSettings copyWith({bool? useBiometric, bool? biometricOnTestnets}) =>
+  AppSettings copyWith({
+    bool? useBiometric,
+    bool? biometricOnTestnets,
+    Object? customRpcUrl = _noChange,
+  }) =>
       AppSettings(
         useBiometric: useBiometric ?? this.useBiometric,
         biometricOnTestnets: biometricOnTestnets ?? this.biometricOnTestnets,
+        customRpcUrl: identical(customRpcUrl, _noChange)
+            ? this.customRpcUrl
+            : customRpcUrl as String?,
       );
 
   Map<String, dynamic> toJson() => {
         'useBiometric': useBiometric,
         'biometricOnTestnets': biometricOnTestnets,
+        'customRpcUrl': customRpcUrl,
       };
 
   static AppSettings fromJson(Map<String, dynamic> json) => AppSettings(
         useBiometric: json['useBiometric'] == true,
         biometricOnTestnets: json['biometricOnTestnets'] == true,
+        customRpcUrl: _parseOptionalString(json['customRpcUrl']),
       );
 
   bool isTestnet(int chainId) =>
@@ -30,6 +43,12 @@ class AppSettings {
 
   bool requireAuthForChain(int chainId) =>
       chainId == 8453 || (isTestnet(chainId) && biometricOnTestnets);
+
+  static String? _parseOptionalString(dynamic value) {
+    if (value == null) return null;
+    final s = value.toString().trim();
+    return s.isEmpty ? null : s;
+  }
 }
 
 class SettingsStore {

@@ -5,8 +5,8 @@ import '../services/ecdsa_key_service.dart';
 import '../services/wots_seed_service.dart';
 
 class KeyMaterial {
-  final String mnemonic;
-  final Uint8List seed;
+  final String? mnemonic;
+  final Uint8List? seed;
   final ECDSAKeyPair ecdsa;
   final Uint8List wotsMaster;
 
@@ -32,6 +32,17 @@ KeyMaterial deriveFromMnemonic(String? existing) {
     mnemonic: derived.mnemonic,
     seed: derived.seed,
     ecdsa: derived.keyPair,
+    wotsMaster: wotsMaster,
+  );
+}
+
+KeyMaterial deriveFromPrivateKey(String privateKeyHex) {
+  final pair = _ecdsaKeyService.deriveFromPrivateKeyHex(privateKeyHex);
+  final wotsMaster = _wotsSeedService.deriveMaster(pair.privateKey);
+  return KeyMaterial(
+    mnemonic: null,
+    seed: null,
+    ecdsa: pair,
     wotsMaster: wotsMaster,
   );
 }
