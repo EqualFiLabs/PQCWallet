@@ -2,7 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show rootBundle;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
-import 'package:web3dart/web3dart.dart';
+import 'package:reown_walletkit/reown_walletkit.dart';
 
 import 'theme/theme.dart';
 import 'services/rpc.dart';
@@ -26,6 +26,7 @@ import 'ui/activity_feed.dart';
 import 'services/eoa_transactions.dart';
 import 'ui/send_token_sheet.dart';
 import 'ui/wallet_setup.dart';
+import 'walletconnect/walletconnect.dart';
 
 void main() => runApp(const PQCApp());
 
@@ -39,6 +40,12 @@ class PQCApp extends StatefulWidget {
 
 class _PQCAppState extends State<PQCApp> {
   static const String _walletSecretKey = 'mnemonic';
+  static const PairingMetadata _wcMetadata = PairingMetadata(
+    name: 'EqualFi PQC Wallet',
+    description: 'Quantum-safe smart account wallet for Base.',
+    url: 'https://equalfi.com',
+    icons: <String>[],
+  );
 
   late ThemeData _theme;
   Map<String, dynamic>? _cfg;
@@ -46,6 +53,8 @@ class _PQCAppState extends State<PQCApp> {
   final BiometricService _biometric = BiometricService();
   final PinService _pinService = const PinService();
   final GlobalKey<NavigatorState> _navKey = GlobalKey<NavigatorState>();
+  late final WcClient _wcClient;
+  final WcRouter _wcRouter = const WcRouter();
   KeyMaterial? _keys;
   String _status = 'Ready';
   AppSettings _settings = const AppSettings();
@@ -63,7 +72,18 @@ class _PQCAppState extends State<PQCApp> {
   void initState() {
     super.initState();
     _theme = cyberpunkTheme();
+    final sessionStore = WcSessionStore(storage: _secureStorage);
+    _wcClient = WcClient(
+      sessionStore: sessionStore,
+      navigatorKey: _navKey,
+    );
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
+  }
+
+  @override
+  void dispose() {
+    _wcClient.dispose();
+    super.dispose();
   }
 
   Future<bool> _ensurePinInitialized() async {
@@ -257,6 +277,29 @@ class _PQCAppState extends State<PQCApp> {
       _walletSetupBusy = false;
       _walletSetupError = null;
     });
+
+    await _initializeWalletConnect(cfg);
+  }
+
+  Future<void> _initializeWalletConnect(Map<String, dynamic> cfg) async {
+    final wcCfgDynamic = cfg['walletConnect'];
+    final wcCfg =
+        wcCfgDynamic is Map<String, dynamic> ? wcCfgDynamic : <String, dynamic>{};
+    final projectId = wcCfg['projectId'] as String?;
+    final relayUrl = wcCfg['relayUrl'] as String?;
+    final pushUrl = wcCfg['pushUrl'] as String?;
+
+    try {
+      await _wcClient.init(
+        projectId: projectId,
+        metadata: _wcMetadata,
+        relayUrl: relayUrl,
+        pushUrl: pushUrl,
+        logLevel: LogLevel.error,
+      );
+    } catch (e, st) {
+      debugPrint('WalletConnect init failed: $e\n$st');
+    }
   }
 
   KeyMaterial _deriveKeyMaterialFromSecret(WalletSecret secret) {
@@ -277,6 +320,10 @@ class _PQCAppState extends State<PQCApp> {
               settings: _settings,
               store: _settingsStore,
               pinService: _pinService,
+              walletConnectAvailable: _wcClient.isAvailable,
+              onOpenWalletConnect: _wcClient.isAvailable
+                  ? () => _wcClient.openSessionsScreen()
+                  : null,
             )));
     final s = await _settingsStore.load();
     setState(() => _settings = s);
@@ -427,6 +474,7 @@ class _PQCAppState extends State<PQCApp> {
   Widget build(BuildContext context) {
     return MaterialApp(
       navigatorKey: _navKey,
+      onGenerateRoute: _wcRouter.onGenerateRoute,
       theme: _theme,
       home: Scaffold(
         appBar: AppBar(

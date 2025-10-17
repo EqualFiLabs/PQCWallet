@@ -9,11 +9,16 @@ class SettingsScreen extends StatefulWidget {
   final AppSettings settings;
   final SettingsStore store;
   final PinService pinService;
-  const SettingsScreen(
-      {super.key,
-      required this.settings,
-      required this.store,
-      required this.pinService});
+  final bool walletConnectAvailable;
+  final VoidCallback? onOpenWalletConnect;
+  const SettingsScreen({
+    super.key,
+    required this.settings,
+    required this.store,
+    required this.pinService,
+    this.walletConnectAvailable = false,
+    this.onOpenWalletConnect,
+  });
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -166,6 +171,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
             subtitle: const Text('Default unlock method.'),
             trailing: const Icon(Icons.chevron_right),
             onTap: _changePin,
+          ),
+          ListTile(
+            title: const Text('WalletConnect'),
+            subtitle: Text(
+              widget.walletConnectAvailable
+                  ? 'Manage connected dapps and pair new sessions.'
+                  : 'Provide a WalletConnect Project ID to enable.',
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            enabled: widget.walletConnectAvailable &&
+                widget.onOpenWalletConnect != null,
+            onTap: widget.onOpenWalletConnect == null
+                ? null
+                : () {
+                    Navigator.of(context).pop();
+                    Future.microtask(
+                        () => widget.onOpenWalletConnect?.call());
+                  },
           ),
           const Divider(),
           Padding(
