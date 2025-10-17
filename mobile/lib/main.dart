@@ -29,6 +29,7 @@ import 'services/eoa_transactions.dart';
 import 'ui/send_token_sheet.dart';
 import 'ui/wallet_setup.dart';
 import 'walletconnect/walletconnect.dart';
+import 'utils/address.dart';
 
 void main() => runApp(const PQCApp());
 
@@ -55,6 +56,7 @@ class _PQCAppState extends State<PQCApp> {
   final BiometricService _biometric = BiometricService();
   final PinService _pinService = const PinService();
   final GlobalKey<NavigatorState> _navKey = GlobalKey<NavigatorState>();
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   late final WcClient _wcClient;
   final WcRouter _wcRouter = const WcRouter();
   KeyMaterial? _keys;
@@ -70,6 +72,7 @@ class _PQCAppState extends State<PQCApp> {
   bool _walletSetupBusy = false;
   String? _walletSetupError;
   bool _pairing = false;
+  int _selectedNavIndex = 0;
 
   @override
   void initState() {
@@ -628,15 +631,64 @@ class _PQCAppState extends State<PQCApp> {
     );
   }
 
+  void _openWalletMenu() {
+    final scaffold = _scaffoldKey.currentState;
+    if (scaffold != null && !scaffold.isDrawerOpen) {
+      scaffold.openDrawer();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    final String? pqcWalletAddress =
+        _cfg != null ? _cfg!['walletAddress'] as String? : null;
+    final String? eoaWalletAddress = _keys?.eoaAddress.hexEip55;
     return MaterialApp(
       navigatorKey: _navKey,
       onGenerateRoute: _wcRouter.onGenerateRoute,
       theme: _theme,
       home: Scaffold(
+        key: _scaffoldKey,
+        drawer: WalletMenuDrawer(
+          selectedAccount: _selectedAccount,
+          pqcAddress: pqcWalletAddress,
+          eoaAddress: eoaWalletAddress,
+          onAccountSelected: (account) {
+            _scaffoldKey.currentState?.closeDrawer();
+            if (_selectedAccount != account) {
+              setState(() => _selectedAccount = account);
+            }
+          },
+        ),
         appBar: AppBar(
-          title: const Text('EqualFi PQC Wallet (MVP)'),
+          automaticallyImplyLeading: false,
+          centerTitle: false,
+          titleSpacing: 0,
+          title: Tooltip(
+            message: 'Open wallet menu',
+            child: InkWell(
+              onTap: _openWalletMenu,
+              borderRadius: BorderRadius.circular(24),
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.account_balance_wallet_outlined),
+                    const SizedBox(width: 6),
+                    Flexible(
+                      child: Text(
+                        _currentWalletTitle(),
+                        overflow: TextOverflow.ellipsis,
+                        softWrap: false,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
           actions: [
             IconButton(
               onPressed: _pairing || !_wcClient.isAvailable
@@ -659,45 +711,170 @@ class _PQCAppState extends State<PQCApp> {
             IconButton(
                 onPressed: _openSettings, icon: const Icon(Icons.settings))
           ],
-          bottom: PreferredSize(
-            preferredSize: const Size.fromHeight(48),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: ToggleButtons(
-                constraints: const BoxConstraints(minHeight: 36, minWidth: 140),
-                borderRadius: BorderRadius.circular(24),
-                isSelected: [
-                  _selectedAccount == WalletAccount.eoaClassic,
-                  _selectedAccount == WalletAccount.pqcWallet,
-                ],
-                onPressed: _keys == null
-                    ? null
-                    : (index) {
-                        final selected = index == 0
-                            ? WalletAccount.eoaClassic
-                            : WalletAccount.pqcWallet;
-                        setState(() => _selectedAccount = selected);
-                      },
-                children: const [
-                  Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 12),
-                    child: Text('EOA (Classic)'),
-                  ),
-                  Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 12),
-                    child: Text('PQC Wallet'),
+        ),
+        body: Column(
+          children: [
+            if (_status.isNotEmpty)
+              Container(
+                width: double.infinity,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                color: Theme.of(context)
+                    .colorScheme
+                    .surfaceVariant
+                    .withOpacity(0.2),
+                child: Text(
+                  _status,
+                  textAlign: TextAlign.center,
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
+              ),
+            Expanded(child: _buildHomeBody()),
+          ],
+        ),
+        bottomNavigationBar: BottomNavigationBar(
+          currentIndex: _selectedNavIndex,
+          onTap: (index) => setState(() => _selectedNavIndex = index),
+          type: BottomNavigationBarType.fixed,
+          items: const [
+            BottomNavigationBarItem(
+              icon: Icon(Icons.space_dashboard_outlined),
+              label: 'Placeholder 1',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.account_balance_wallet_outlined),
+              label: 'Placeholder 2',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.qr_code_2),
+              label: 'Placeholder 3',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.shield_outlined),
+              label: 'Placeholder 4',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.more_horiz),
+              label: 'Placeholder 5',
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _currentWalletTitle() {
+    final account = _selectedAccount;
+    if (account == WalletAccount.pqcWallet) {
+      final address = _cfg != null ? _cfg!['walletAddress'] as String? : null;
+      return _formatAddressTitle(address);
+    }
+    final eoaAddress = _keys?.eoaAddress.hexEip55;
+    return _formatAddressTitle(eoaAddress);
+  }
+
+  String _formatAddressTitle(String? address) {
+    if (address == null || address.isEmpty) {
+      return 'Wallet';
+    }
+    return truncateAddress(address);
+  }
+}
+
+class WalletMenuDrawer extends StatelessWidget {
+  const WalletMenuDrawer({
+    super.key,
+    required this.selectedAccount,
+    required this.onAccountSelected,
+    this.pqcAddress,
+    this.eoaAddress,
+  });
+
+  final WalletAccount selectedAccount;
+  final ValueChanged<WalletAccount> onAccountSelected;
+  final String? pqcAddress;
+  final String? eoaAddress;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Drawer(
+      child: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Wallet Menu', style: theme.textTheme.titleLarge),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Select the active wallet to manage.',
+                    style: theme.textTheme.bodySmall,
                   ),
                 ],
               ),
             ),
-          ),
-        ),
-        body: _buildHomeBody(),
-        bottomNavigationBar: Container(
-          padding: const EdgeInsets.all(12),
-          child: Text(_status, textAlign: TextAlign.center),
+            const Divider(height: 1),
+            Expanded(
+              child: ListView(
+                padding: EdgeInsets.zero,
+                children: [
+                  _WalletAccountTile(
+                    value: WalletAccount.pqcWallet,
+                    groupValue: selectedAccount,
+                    title: 'PQC Wallet (4337)',
+                    address: pqcAddress,
+                    onChanged: onAccountSelected,
+                  ),
+                  _WalletAccountTile(
+                    value: WalletAccount.eoaClassic,
+                    groupValue: selectedAccount,
+                    title: 'EOA (Classic)',
+                    address: eoaAddress,
+                    onChanged: onAccountSelected,
+                  ),
+                ],
+              ),
+            ),
+          ],
         ),
       ),
+    );
+  }
+}
+
+class _WalletAccountTile extends StatelessWidget {
+  const _WalletAccountTile({
+    required this.value,
+    required this.groupValue,
+    required this.title,
+    required this.onChanged,
+    this.address,
+  });
+
+  final WalletAccount value;
+  final WalletAccount groupValue;
+  final String title;
+  final ValueChanged<WalletAccount> onChanged;
+  final String? address;
+
+  @override
+  Widget build(BuildContext context) {
+    return RadioListTile<WalletAccount>(
+      value: value,
+      groupValue: groupValue,
+      onChanged: (wallet) {
+        if (wallet != null) {
+          onChanged(wallet);
+        }
+      },
+      title: Text(title),
+      subtitle: address == null
+          ? const Text('Address unavailable')
+          : Text(truncateAddress(address!)),
     );
   }
 }

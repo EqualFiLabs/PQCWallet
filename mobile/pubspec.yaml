@@ -16,7 +16,8 @@ dependencies:
   bip32: ^2.0.0
   crypto: ^3.0.3
   flutter_secure_storage: ^9.0.0
-  qr_bar_code_scanner_dialog: ^0.0.5
+  qr_bar_code_scanner_dialog:
+    path: packages/qr_bar_code_scanner_dialog
   local_auth: ^2.3.0
   collection: ^1.18.0
   shared_preferences: ^2.2.2
@@ -25,6 +26,10 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   lints: ^3.0.0
+
+dependency_overrides:
+  qr_code_scanner:
+    path: packages/qr_code_scanner
 
 flutter:
   uses-material-design: true
