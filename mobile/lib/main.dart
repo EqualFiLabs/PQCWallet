@@ -612,13 +612,16 @@ class _PQCAppState extends State<PQCApp> {
         },
       );
     }
-    if (_keys == null) {
-      return const Center(child: CircularProgressIndicator());
-    }
     final effectiveCfg = Map<String, dynamic>.from(_cfg!);
     final customRpc = _settings.customRpcUrl?.trim();
     if (customRpc != null && customRpc.isNotEmpty) {
       effectiveCfg['rpcUrl'] = customRpc;
+    }
+    if (_selectedNavIndex == 3) {
+      return _SecurityConfigView(cfg: effectiveCfg);
+    }
+    if (_keys == null) {
+      return const Center(child: CircularProgressIndicator());
     }
     return _Body(
       key: ValueKey<String>(effectiveCfg['rpcUrl'] as String),
@@ -721,8 +724,8 @@ class _PQCAppState extends State<PQCApp> {
                     const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 color: Theme.of(context)
                     .colorScheme
-                    .surfaceVariant
-                    .withOpacity(0.2),
+                    .surfaceContainerHighest
+                    .withValues(alpha: 0.2),
                 child: Text(
                   _status,
                   textAlign: TextAlign.center,
@@ -751,7 +754,7 @@ class _PQCAppState extends State<PQCApp> {
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.shield_outlined),
-              label: 'Placeholder 4',
+              label: 'Security',
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.more_horiz),
@@ -819,24 +822,28 @@ class WalletMenuDrawer extends StatelessWidget {
             ),
             const Divider(height: 1),
             Expanded(
-              child: ListView(
-                padding: EdgeInsets.zero,
-                children: [
-                  _WalletAccountTile(
-                    value: WalletAccount.pqcWallet,
-                    groupValue: selectedAccount,
-                    title: 'PQC Wallet (4337)',
-                    address: pqcAddress,
-                    onChanged: onAccountSelected,
-                  ),
-                  _WalletAccountTile(
-                    value: WalletAccount.eoaClassic,
-                    groupValue: selectedAccount,
-                    title: 'EOA (Classic)',
-                    address: eoaAddress,
-                    onChanged: onAccountSelected,
-                  ),
-                ],
+              child: RadioGroup<WalletAccount>(
+                groupValue: selectedAccount,
+                onChanged: (wallet) {
+                  if (wallet != null) {
+                    onAccountSelected(wallet);
+                  }
+                },
+                child: ListView(
+                  padding: EdgeInsets.zero,
+                  children: [
+                    _WalletAccountTile(
+                      value: WalletAccount.pqcWallet,
+                      title: 'PQC Wallet (4337)',
+                      address: pqcAddress,
+                    ),
+                    _WalletAccountTile(
+                      value: WalletAccount.eoaClassic,
+                      title: 'EOA (Classic)',
+                      address: eoaAddress,
+                    ),
+                  ],
+                ),
               ),
             ),
           ],
@@ -849,28 +856,18 @@ class WalletMenuDrawer extends StatelessWidget {
 class _WalletAccountTile extends StatelessWidget {
   const _WalletAccountTile({
     required this.value,
-    required this.groupValue,
     required this.title,
-    required this.onChanged,
     this.address,
   });
 
   final WalletAccount value;
-  final WalletAccount groupValue;
   final String title;
-  final ValueChanged<WalletAccount> onChanged;
   final String? address;
 
   @override
   Widget build(BuildContext context) {
     return RadioListTile<WalletAccount>(
       value: value,
-      groupValue: groupValue,
-      onChanged: (wallet) {
-        if (wallet != null) {
-          onChanged(wallet);
-        }
-      },
       title: Text(title),
       subtitle: address == null
           ? const Text('Address unavailable')
@@ -939,8 +936,6 @@ class _BodyState extends State<_Body> {
       children: [
         SizedBox(height: 200, child: ActivityFeed(store: activityStore)),
         const SizedBox(height: 16),
-        _Card(child: SelectableText('ChainId: ${widget.cfg['chainId']}')),
-        const SizedBox(height: 8),
         _Card(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -951,18 +946,6 @@ class _BodyState extends State<_Body> {
             ],
           ),
         ),
-        const SizedBox(height: 8),
-        _Card(child: SelectableText('EntryPoint: ${widget.cfg['entryPoint']}')),
-        const SizedBox(height: 8),
-        _Card(child: SelectableText('Aggregator: ${widget.cfg['aggregator']}')),
-        const SizedBox(height: 8),
-        _Card(
-            child: SelectableText(
-                'ProverRegistry: ${widget.cfg['proverRegistry']}')),
-        const SizedBox(height: 8),
-        _Card(
-            child: SelectableText(
-                'ForceOnChainVerify: ${widget.cfg['forceOnChainVerify']}')),
         const SizedBox(height: 16),
         TextField(
             controller: recipientCtl,
@@ -1152,6 +1135,33 @@ class _BodyState extends State<_Body> {
     final chainId = widget.cfg['chainId'];
     await pendingStore.clear(chainId, wallet.hex);
     widget.setStatus('pendingIndex cleared (canceled by user).');
+  }
+}
+
+class _SecurityConfigView extends StatelessWidget {
+  const _SecurityConfigView({required this.cfg});
+
+  final Map<String, dynamic> cfg;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return ListView(
+      padding: const EdgeInsets.all(16),
+      children: [
+        Text('Security & Network', style: theme.textTheme.titleLarge),
+        const SizedBox(height: 16),
+        _Card(child: SelectableText('ChainID: ${cfg['chainId']}')),
+        const SizedBox(height: 8),
+        _Card(child: SelectableText('EntryPoint: ${cfg['entryPoint']}')),
+        const SizedBox(height: 8),
+        _Card(child: SelectableText('Aggregator: ${cfg['aggregator']}')),
+        const SizedBox(height: 8),
+        _Card(child: SelectableText('ProverRegistry: ${cfg['proverRegistry']}')),
+        const SizedBox(height: 8),
+        _Card(child: SelectableText('ForceOnChainVerify: ${cfg['forceOnChainVerify']}')),
+      ],
+    );
   }
 }
 
