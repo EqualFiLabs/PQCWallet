@@ -1,8 +1,10 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart' show rootBundle;
+import 'package:flutter/services.dart'
+    show Clipboard, TextPosition, TextSelection, rootBundle;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:reown_walletkit/reown_walletkit.dart';
+import 'package:qr_bar_code_scanner_dialog/qr_bar_code_scanner_dialog.dart';
 
 import 'theme/theme.dart';
 import 'services/rpc.dart';
@@ -67,6 +69,7 @@ class _PQCAppState extends State<PQCApp> {
   bool _needsWalletSetup = false;
   bool _walletSetupBusy = false;
   String? _walletSetupError;
+  bool _pairing = false;
 
   @override
   void initState() {
@@ -144,8 +147,7 @@ class _PQCAppState extends State<PQCApp> {
     if (_settings.useBiometric) {
       final canCheck = await _biometric.canCheck();
       if (canCheck) {
-        final ok =
-            await _biometric.authenticate(reason: reason);
+        final ok = await _biometric.authenticate(reason: reason);
         if (ok) {
           if (rememberSession) {
             _hasUnlockedMnemonic = true;
@@ -283,8 +285,9 @@ class _PQCAppState extends State<PQCApp> {
 
   Future<void> _initializeWalletConnect(Map<String, dynamic> cfg) async {
     final wcCfgDynamic = cfg['walletConnect'];
-    final wcCfg =
-        wcCfgDynamic is Map<String, dynamic> ? wcCfgDynamic : <String, dynamic>{};
+    final wcCfg = wcCfgDynamic is Map<String, dynamic>
+        ? wcCfgDynamic
+        : <String, dynamic>{};
     final projectId = wcCfg['projectId'] as String?;
     final relayUrl = wcCfg['relayUrl'] as String?;
     final pushUrl = wcCfg['pushUrl'] as String?;
@@ -329,6 +332,163 @@ class _PQCAppState extends State<PQCApp> {
     setState(() => _settings = s);
   }
 
+  Future<void> _promptWalletConnectPairing() async {
+    final navContext = _navKey.currentContext;
+    if (navContext == null) {
+      return;
+    }
+    if (!_wcClient.isAvailable) {
+      ScaffoldMessenger.maybeOf(navContext)?.showSnackBar(
+        const SnackBar(
+          content:
+              Text('WalletConnect is disabled. Add a project ID in settings.'),
+        ),
+      );
+      return;
+    }
+
+    final controller = TextEditingController();
+    final scanner = QrBarCodeScannerDialog();
+    String? errorText;
+
+    final uriText = await showDialog<String>(
+      context: navContext,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            Future<void> handleScan() async {
+              try {
+                await Future<void>.sync(
+                  () => scanner.getScannedQrBarCode(
+                    context: context,
+                    onCode: (value) {
+                      if (value == null || value.isEmpty) {
+                        return;
+                      }
+                      final trimmed = value.trim();
+                      setDialogState(() {
+                        controller.text = trimmed;
+                        controller.selection = TextSelection.fromPosition(
+                          TextPosition(offset: controller.text.length),
+                        );
+                        errorText = null;
+                      });
+                    },
+                  ),
+                );
+              } catch (e) {
+                ScaffoldMessenger.maybeOf(navContext)?.showSnackBar(
+                  SnackBar(content: Text('QR scan failed: $e')),
+                );
+              }
+            }
+
+            return AlertDialog(
+              backgroundColor: Theme.of(context).colorScheme.surface,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+              ),
+              title: const Text('Connect dApp (Reown)'),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Scan the QR code or paste the WalletConnect URI shared by the dApp.',
+                  ),
+                  const SizedBox(height: 12),
+                  TextField(
+                    controller: controller,
+                    autofocus: true,
+                    minLines: 1,
+                    maxLines: 3,
+                    decoration: InputDecoration(
+                      hintText: 'wc:...',
+                      errorText: errorText,
+                      suffixIcon: IconButton(
+                        icon: const Icon(Icons.paste),
+                        onPressed: () async {
+                          final data = await Clipboard.getData('text/plain');
+                          final text = data?.text?.trim() ?? '';
+                          if (text.isEmpty) {
+                            return;
+                          }
+                          setDialogState(() {
+                            controller.text = text;
+                            controller.selection = TextSelection.fromPosition(
+                              TextPosition(offset: controller.text.length),
+                            );
+                            errorText = null;
+                          });
+                        },
+                      ),
+                    ),
+                    onChanged: (_) => setDialogState(() => errorText = null),
+                  ),
+                  const SizedBox(height: 12),
+                  OutlinedButton.icon(
+                    onPressed: handleScan,
+                    icon: const Icon(Icons.qr_code_scanner),
+                    label: const Text('Scan QR code'),
+                  ),
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: const Text('Cancel'),
+                ),
+                ElevatedButton(
+                  onPressed: controller.text.trim().isEmpty
+                      ? null
+                      : () => Navigator.of(context).pop(controller.text.trim()),
+                  child: const Text('Connect'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    controller.dispose();
+    if (uriText == null || uriText.isEmpty) {
+      return;
+    }
+
+    Uri uri;
+    try {
+      uri = Uri.parse(uriText);
+      if (uri.scheme.toLowerCase() != 'wc') {
+        throw const FormatException('Invalid WalletConnect URI');
+      }
+    } catch (_) {
+      ScaffoldMessenger.maybeOf(navContext)?.showSnackBar(
+        const SnackBar(content: Text('Provide a valid WalletConnect URI.')),
+      );
+      return;
+    }
+
+    setState(() => _pairing = true);
+    ScaffoldMessenger.maybeOf(navContext)?.showSnackBar(
+      const SnackBar(content: Text('Pairing with dApp...')),
+    );
+    try {
+      await _wcClient.pair(uri);
+      ScaffoldMessenger.maybeOf(navContext)?.showSnackBar(
+        const SnackBar(content: Text('WalletConnect pairing started.')),
+      );
+    } catch (e) {
+      ScaffoldMessenger.maybeOf(navContext)?.showSnackBar(
+        SnackBar(content: Text('Failed to pair: $e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _pairing = false);
+      }
+    }
+  }
+
   Future<void> _handleCreateNewWallet() async {
     setState(() {
       _walletSetupBusy = true;
@@ -352,8 +512,7 @@ class _PQCAppState extends State<PQCApp> {
     if (!saved) {
       setState(() {
         _walletSetupBusy = false;
-        _walletSetupError =
-            'Authentication required to store wallet secret.';
+        _walletSetupError = 'Authentication required to store wallet secret.';
         _status = 'Wallet setup required.';
       });
       return;
@@ -396,8 +555,7 @@ class _PQCAppState extends State<PQCApp> {
       if (!saved) {
         setState(() {
           _walletSetupBusy = false;
-          _walletSetupError =
-              'Authentication required to store wallet secret.';
+          _walletSetupError = 'Authentication required to store wallet secret.';
           _status = 'Wallet setup required.';
         });
         return;
@@ -481,6 +639,24 @@ class _PQCAppState extends State<PQCApp> {
           title: const Text('EqualFi PQC Wallet (MVP)'),
           actions: [
             IconButton(
+              onPressed: _pairing || !_wcClient.isAvailable
+                  ? null
+                  : _promptWalletConnectPairing,
+              tooltip: 'Connect dApp (Reown)',
+              icon: Stack(
+                alignment: Alignment.center,
+                children: [
+                  const Icon(Icons.qr_code_scanner),
+                  if (_pairing)
+                    const SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                ],
+              ),
+            ),
+            IconButton(
                 onPressed: _openSettings, icon: const Icon(Icons.settings))
           ],
           bottom: PreferredSize(
@@ -562,7 +738,8 @@ class _BodyState extends State<_Body> {
   void initState() {
     super.initState();
     activityStore.load();
-    activityPoller = ActivityPoller(store: activityStore, rpc: rpc, bundler: bundler);
+    activityPoller =
+        ActivityPoller(store: activityStore, rpc: rpc, bundler: bundler);
     activityPoller.start();
   }
 
@@ -576,8 +753,7 @@ class _BodyState extends State<_Body> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isPqc = widget.selectedAccount == WalletAccount.pqcWallet;
-    final accountLabel =
-        isPqc ? 'PQC Wallet (4337)' : 'EOA (Classic)';
+    final accountLabel = isPqc ? 'PQC Wallet (4337)' : 'EOA (Classic)';
     final walletAddress = isPqc
         ? widget.cfg['walletAddress'] as String
         : widget.keys.eoaAddress.hexEip55;
@@ -632,8 +808,7 @@ class _BodyState extends State<_Body> {
             Expanded(
                 child: ElevatedButton(
                     onPressed: isPqc ? _sendEth : _sendEthEoa,
-                    child: Text(
-                        isPqc ? 'Send ETH (PQC)' : 'Send ETH (EOA)'))),
+                    child: Text(isPqc ? 'Send ETH (PQC)' : 'Send ETH (EOA)'))),
           ],
         ),
         const SizedBox(height: 8),
@@ -703,18 +878,21 @@ class _BodyState extends State<_Body> {
         chainId: chainId,
       );
       final ts = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-      await activityStore.upsertByUserOpHash(txHash, (existing) =>
-          existing?.copyWith(status: ActivityStatus.pending, txHash: txHash) ??
-          ActivityItem(
-            userOpHash: txHash,
-            to: to,
-            display: '$amtStr ETH',
-            ts: ts,
-            status: ActivityStatus.pending,
-            chainId: chainId,
-            opKind: 'eth',
-            txHash: txHash,
-          ));
+      await activityStore.upsertByUserOpHash(
+          txHash,
+          (existing) =>
+              existing?.copyWith(
+                  status: ActivityStatus.pending, txHash: txHash) ??
+              ActivityItem(
+                userOpHash: txHash,
+                to: to,
+                display: '$amtStr ETH',
+                ts: ts,
+                status: ActivityStatus.pending,
+                chainId: chainId,
+                opKind: 'eth',
+                txHash: txHash,
+              ));
       widget.setStatus('Sent. TxHash: $txHash');
     } catch (e) {
       widget.setStatus('Error: $e');
@@ -723,7 +901,8 @@ class _BodyState extends State<_Body> {
 
   Future<void> _sendEth() async {
     if (widget.selectedAccount != WalletAccount.pqcWallet) {
-      widget.setStatus('Switch to the PQC Wallet to send smart-account transactions.');
+      widget.setStatus(
+          'Switch to the PQC Wallet to send smart-account transactions.');
       return;
     }
     try {
@@ -750,17 +929,19 @@ class _BodyState extends State<_Body> {
         selectFees: (f) => showFeeSheet(context, f),
       );
 
-      await activityStore.upsertByUserOpHash(uoh, (existing) =>
-          existing?.copyWith(status: ActivityStatus.sent) ??
-          ActivityItem(
-            userOpHash: uoh,
-            to: to.hex,
-            display: '$amtStr ETH',
-            ts: DateTime.now().millisecondsSinceEpoch ~/ 1000,
-            status: ActivityStatus.sent,
-            chainId: widget.cfg['chainId'],
-            opKind: 'eth',
-          ));
+      await activityStore.upsertByUserOpHash(
+          uoh,
+          (existing) =>
+              existing?.copyWith(status: ActivityStatus.sent) ??
+              ActivityItem(
+                userOpHash: uoh,
+                to: to.hex,
+                display: '$amtStr ETH',
+                ts: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+                status: ActivityStatus.sent,
+                chainId: widget.cfg['chainId'],
+                opKind: 'eth',
+              ));
 
       widget.setStatus('Sent. UserOpHash: $uoh (waiting for receipt...)');
 
