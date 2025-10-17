@@ -5,6 +5,7 @@ import 'package:flutter/services.dart'
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:reown_walletkit/reown_walletkit.dart';
 import 'package:qr_bar_code_scanner_dialog/qr_bar_code_scanner_dialog.dart';
+import 'package:web3dart/crypto.dart' as w3;
 
 import 'theme/theme.dart';
 import 'services/rpc.dart';
@@ -49,6 +50,14 @@ class _PQCAppState extends State<PQCApp> {
     url: 'https://equalfi.com',
     icons: <String>[],
   );
+  static const Set<String> _wcSupportedMethods = <String>{
+    'personal_sign',
+    'eth_sign',
+    'eth_signTypedData',
+    'eth_signTypedData_v4',
+    'eth_sendTransaction',
+    'eth_signTransaction',
+  };
 
   late ThemeData _theme;
   Map<String, dynamic>? _cfg;
@@ -58,7 +67,7 @@ class _PQCAppState extends State<PQCApp> {
   final GlobalKey<NavigatorState> _navKey = GlobalKey<NavigatorState>();
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   late final WcClient _wcClient;
-  final WcRouter _wcRouter = const WcRouter();
+  late final WcRouter _wcRouter;
   KeyMaterial? _keys;
   String _status = 'Ready';
   AppSettings _settings = const AppSettings();
@@ -73,6 +82,12 @@ class _PQCAppState extends State<PQCApp> {
   String? _walletSetupError;
   bool _pairing = false;
   int _selectedNavIndex = 0;
+  Map<int, WcSigner> _wcSigners = <int, WcSigner>{};
+  final Set<String> _registeredWcAccounts = <String>{};
+  int? _activeProposalId;
+  int? _activeRequestId;
+  bool _wcPumpScheduled = false;
+  bool _wcHandlingQueue = false;
 
   @override
   void initState() {
@@ -83,11 +98,14 @@ class _PQCAppState extends State<PQCApp> {
       sessionStore: sessionStore,
       navigatorKey: _navKey,
     );
+    _wcRouter = WcRouter(client: _wcClient);
+    _wcClient.addListener(_handleWalletConnectChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
   }
 
   @override
   void dispose() {
+    _wcClient.removeListener(_handleWalletConnectChanged);
     _wcClient.dispose();
     super.dispose();
   }
@@ -217,9 +235,7 @@ class _PQCAppState extends State<PQCApp> {
   }
 
   Future<void> _load() async {
-    final cfg =
-        jsonDecode(await rootBundle.loadString('assets/config.example.json'))
-            as Map<String, dynamic>;
+    final cfg = await _loadAppConfig();
     final settings = await _settingsStore.load();
     if (!mounted) return;
     setState(() {
@@ -228,12 +244,15 @@ class _PQCAppState extends State<PQCApp> {
       _unlockFailed = false;
       _saveFailed = false;
     });
+    _rebuildWcSigners();
 
     final readResult = await _readWalletSecretProtected();
     if (!readResult.authorized) {
       if (!mounted) return;
       setState(() {
         _keys = null;
+        _wcSigners = <int, WcSigner>{};
+        _registeredWcAccounts.clear();
         _unlockFailed = true;
         _status = 'Authentication required to unlock wallet secret.';
         _needsWalletSetup = false;
@@ -247,6 +266,8 @@ class _PQCAppState extends State<PQCApp> {
       if (!mounted) return;
       setState(() {
         _keys = null;
+        _wcSigners = <int, WcSigner>{};
+        _registeredWcAccounts.clear();
         _needsWalletSetup = true;
         _walletSetupBusy = false;
         _walletSetupError = readResult.hadCorruptData
@@ -264,6 +285,8 @@ class _PQCAppState extends State<PQCApp> {
       if (!mounted) return;
       setState(() {
         _keys = null;
+        _wcSigners = <int, WcSigner>{};
+        _registeredWcAccounts.clear();
         _needsWalletSetup = true;
         _walletSetupBusy = false;
         _walletSetupError = 'Failed to load wallet: $e';
@@ -281,9 +304,40 @@ class _PQCAppState extends State<PQCApp> {
       _needsWalletSetup = false;
       _walletSetupBusy = false;
       _walletSetupError = null;
+      _registeredWcAccounts.clear();
     });
+    _rebuildWcSigners();
 
     await _initializeWalletConnect(cfg);
+  }
+
+  Future<Map<String, dynamic>> _loadAppConfig() async {
+    const candidates = <String>[
+      'assets/config.json',
+      'assets/config.base-sepolia.example.json',
+      'assets/config.example.json',
+    ];
+
+    for (final asset in candidates) {
+      try {
+        final data = await rootBundle.loadString(asset);
+        final decoded = jsonDecode(data);
+        if (decoded is Map<String, dynamic>) {
+          if (asset != 'assets/config.example.json') {
+            debugPrint('Loaded configuration from $asset');
+          }
+          return decoded;
+        }
+      } on FlutterError {
+        // Asset not found, try the next candidate.
+      } on FormatException catch (e) {
+        debugPrint('Failed parsing $asset: $e');
+      }
+    }
+
+    throw StateError(
+      'Unable to load configuration. Ensure assets/config.json or config.example.json is available.',
+    );
   }
 
   Future<void> _initializeWalletConnect(Map<String, dynamic> cfg) async {
@@ -291,9 +345,16 @@ class _PQCAppState extends State<PQCApp> {
     final wcCfg = wcCfgDynamic is Map<String, dynamic>
         ? wcCfgDynamic
         : <String, dynamic>{};
-    final projectId = wcCfg['projectId'] as String?;
+    final projectId = (wcCfg['projectId'] as String?)?.trim();
     final relayUrl = wcCfg['relayUrl'] as String?;
     final pushUrl = wcCfg['pushUrl'] as String?;
+
+    if (projectId == null || projectId.isEmpty) {
+      debugPrint(
+        'WalletConnect disabled: walletConnect.projectId not configured.',
+      );
+      return;
+    }
 
     try {
       await _wcClient.init(
@@ -303,8 +364,481 @@ class _PQCAppState extends State<PQCApp> {
         pushUrl: pushUrl,
         logLevel: LogLevel.error,
       );
+      await _registerWalletConnectAccounts();
+      _scheduleWalletConnectPump();
     } catch (e, st) {
       debugPrint('WalletConnect init failed: $e\n$st');
+    }
+  }
+
+  Future<void> _registerWalletConnectAccounts() async {
+    if (!_wcClient.isAvailable || !_wcClient.isInitialized) {
+      return;
+    }
+    final cfg = _cfg;
+    final keys = _keys;
+    if (cfg == null || keys == null) {
+      return;
+    }
+    final chainId = _configChainId(cfg);
+    if (chainId == null) {
+      return;
+    }
+    final kit = _wcClient.walletKit;
+    if (kit == null) {
+      return;
+    }
+    final account = keys.ecdsa.address.hexEip55;
+    final chainLabel = 'eip155:$chainId';
+    final registrationKey = '$chainLabel:${account.toLowerCase()}';
+    if (_registeredWcAccounts.contains(registrationKey)) {
+      return;
+    }
+    try {
+      kit.registerAccount(chainId: chainLabel, accountAddress: account);
+      _registeredWcAccounts.add(registrationKey);
+    } catch (e) {
+      debugPrint('WalletConnect account registration failed: $e');
+    }
+  }
+
+  void _rebuildWcSigners() {
+    final cfg = _cfg;
+    final keys = _keys;
+    if (cfg == null || keys == null) {
+      _wcSigners = <int, WcSigner>{};
+      return;
+    }
+    final chainId = _configChainId(cfg);
+    final rpcOverride = _settings.customRpcUrl?.trim();
+    final rpcUrl = (rpcOverride != null && rpcOverride.isNotEmpty)
+        ? rpcOverride
+        : (cfg['rpcUrl'] as String?)?.trim();
+    if (chainId == null || rpcUrl == null || rpcUrl.isEmpty) {
+      _wcSigners = <int, WcSigner>{};
+      return;
+    }
+    final credentials = EthPrivateKey.fromHex(
+      w3.bytesToHex(keys.ecdsa.privateKey, include0x: true),
+    );
+    final signer = WcSigner(
+      credentials: credentials,
+      rpcClient: RpcClient(rpcUrl),
+      defaultChainId: chainId,
+    );
+    _wcSigners = <int, WcSigner>{chainId: signer};
+  }
+
+  int? _configChainId(Map<String, dynamic>? cfg) {
+    if (cfg == null) return null;
+    final dynamic value = cfg['chainId'] ?? cfg['chain'];
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    if (value is String) {
+      final trimmed = value.trim();
+      if (trimmed.isEmpty) return null;
+      if (trimmed.startsWith('0x') || trimmed.startsWith('0X')) {
+        return int.tryParse(trimmed.substring(2), radix: 16);
+      }
+      return int.tryParse(trimmed);
+    }
+    return null;
+  }
+
+  void _handleWalletConnectChanged() {
+    if (!mounted) {
+      return;
+    }
+    setState(() {});
+    _scheduleWalletConnectPump();
+  }
+
+  void _scheduleWalletConnectPump() {
+    if (_wcPumpScheduled) {
+      return;
+    }
+    if (!_wcClient.isInitialized) {
+      return;
+    }
+    _wcPumpScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      _wcPumpScheduled = false;
+      if (!mounted || _wcHandlingQueue) {
+        return;
+      }
+      _wcHandlingQueue = true;
+      try {
+        await _processWalletConnectQueues();
+      } finally {
+        _wcHandlingQueue = false;
+      }
+    });
+  }
+
+  Future<void> _processWalletConnectQueues() async {
+    while (mounted) {
+      if (_activeProposalId != null || _activeRequestId != null) {
+        return;
+      }
+      if (_wcClient.pendingProposals.isNotEmpty) {
+        final entry = _wcClient.pendingProposals.entries.first;
+        _activeProposalId = entry.key;
+        try {
+          await _presentProposal(entry.key, entry.value);
+        } finally {
+          _activeProposalId = null;
+        }
+        continue;
+      }
+      if (_wcClient.pendingRequests.isNotEmpty) {
+        final entry = _wcClient.pendingRequests.entries.first;
+        _activeRequestId = entry.key;
+        try {
+          await _presentRequest(entry.value);
+        } finally {
+          _activeRequestId = null;
+        }
+        continue;
+      }
+      break;
+    }
+  }
+
+  Future<void> _presentProposal(int id, ProposalData proposal) async {
+    final navContext = _navKey.currentContext;
+    if (navContext == null) {
+      return;
+    }
+    final namespaces = _buildNamespacesForProposal(proposal);
+    var handled = false;
+    await showModalBottomSheet<void>(
+      context: navContext,
+      isScrollControlled: true,
+      isDismissible: false,
+      enableDrag: false,
+      builder: (sheetContext) {
+        var busy = false;
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            Future<void> approve() async {
+              if (busy) return;
+              setSheetState(() => busy = true);
+              try {
+                await _wcClient.approve(
+                  id: id,
+                  namespaces: namespaces,
+                  sessionProperties: proposal.sessionProperties,
+                );
+                handled = true;
+                if (Navigator.of(context).canPop()) {
+                  Navigator.of(context).pop();
+                }
+                ScaffoldMessenger.maybeOf(navContext)?.showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      'WalletConnect session approved for ${proposal.proposer.metadata.name.isEmpty ? 'the dApp' : proposal.proposer.metadata.name}.',
+                    ),
+                  ),
+                );
+                await _registerWalletConnectAccounts();
+              } catch (e) {
+                debugPrint('WalletConnect approve failed: $e');
+                ScaffoldMessenger.maybeOf(navContext)?.showSnackBar(
+                  SnackBar(content: Text('Failed to approve session: $e')),
+                );
+                setSheetState(() => busy = false);
+              }
+            }
+
+            Future<void> reject() async {
+              if (busy) return;
+              setSheetState(() => busy = true);
+              try {
+                await _wcClient.reject(id: id);
+                handled = true;
+                if (Navigator.of(context).canPop()) {
+                  Navigator.of(context).pop();
+                }
+                ScaffoldMessenger.maybeOf(navContext)?.showSnackBar(
+                  const SnackBar(content: Text('WalletConnect session rejected.')),
+                );
+              } catch (e) {
+                debugPrint('WalletConnect reject failed: $e');
+                ScaffoldMessenger.maybeOf(navContext)?.showSnackBar(
+                  SnackBar(content: Text('Failed to reject session: $e')),
+                );
+                setSheetState(() => busy = false);
+              }
+            }
+
+            return WcConnectSheet(
+              proposal: proposal,
+              namespaces: namespaces,
+              busy: busy,
+              onApprove: approve,
+              onReject: reject,
+            );
+          },
+        );
+      },
+    );
+
+    if (!handled && mounted && _wcClient.pendingProposals.containsKey(id)) {
+      debugPrint('WalletConnect proposal $id remains pending.');
+    }
+    _scheduleWalletConnectPump();
+  }
+
+  Map<String, Namespace> _buildNamespacesForProposal(ProposalData proposal) {
+    final keys = _keys;
+    if (keys == null || _wcSigners.isEmpty) {
+      return <String, Namespace>{};
+    }
+    final drafts = <String, _NamespaceDraft>{};
+    final address = keys.ecdsa.address.hexEip55.toLowerCase();
+
+    void addNamespace(
+      String key,
+      RequiredNamespace namespace, {
+      required bool optional,
+    }) {
+      final chains = _resolveRequestedChains(key, namespace);
+      var hasSupport = false;
+      for (final chain in chains) {
+        final chainRef = _parseChainReference(chain);
+        if (chainRef == null) {
+          continue;
+        }
+        if (!_wcSigners.containsKey(chainRef)) {
+          continue;
+        }
+        hasSupport = true;
+        final draft = drafts.putIfAbsent(key, _NamespaceDraft.new);
+        draft.chains.add(chain);
+        draft.accounts.add('$chain:$address');
+      }
+      if (!hasSupport) {
+        return;
+      }
+      final draft = drafts.putIfAbsent(key, _NamespaceDraft.new);
+      final supportedMethods = namespace.methods
+          .where((method) => _wcSupportedMethods.contains(method));
+      draft.methods.addAll(supportedMethods);
+      draft.events.addAll(namespace.events);
+    }
+
+    proposal.requiredNamespaces
+        .forEach((key, value) => addNamespace(key, value, optional: false));
+    proposal.optionalNamespaces
+        .forEach((key, value) => addNamespace(key, value, optional: true));
+
+    return drafts.map((key, draft) {
+      final accounts = draft.accounts.toList()
+        ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+      final chains = draft.chains.toList()
+        ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+      final methods = draft.methods.toList()
+        ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+      final events = draft.events.toList()
+        ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+      return MapEntry(
+        key,
+        Namespace(
+          chains: chains,
+          accounts: accounts,
+          methods: methods,
+          events: events,
+        ),
+      );
+    });
+  }
+
+  List<String> _resolveRequestedChains(
+    String nsOrChain,
+    RequiredNamespace namespace,
+  ) {
+    final chains = <String>{};
+    final explicit = namespace.chains ?? <String>[];
+    chains.addAll(explicit);
+    if (_isValidChainId(nsOrChain)) {
+      chains.add(nsOrChain);
+    }
+    if (chains.isEmpty) {
+      chains.add(nsOrChain);
+    }
+    return chains.toList();
+  }
+
+  bool _isValidChainId(String value) {
+    final parts = value.split(':');
+    return parts.length == 2 && parts[0].isNotEmpty && parts[1].isNotEmpty;
+  }
+
+  int? _parseChainReference(String value) {
+    final parts = value.split(':');
+    if (parts.length != 2) {
+      return null;
+    }
+    return int.tryParse(parts[1]);
+  }
+
+  Future<void> _presentRequest(SessionRequestEvent request) async {
+    final navContext = _navKey.currentContext;
+    if (navContext == null) {
+      return;
+    }
+    final session = _wcClient.sessions[request.topic];
+    if (session == null) {
+      final response = JsonRpcResponse<Object?>(
+        id: request.id,
+        error: const JsonRpcError(
+          code: 4001,
+          message: 'Session not found.',
+        ),
+      );
+      try {
+        await _wcClient.respond(topic: request.topic, response: response);
+      } catch (e) {
+        debugPrint('Failed to respond to missing session: $e');
+      }
+      return;
+    }
+
+    final unsupported = _wcSigners.isEmpty ||
+        !await _wcRouter.supports(
+          event: request,
+          session: session,
+          signers: _wcSigners,
+        );
+
+    var handled = false;
+    await showDialog<void>(
+      context: navContext,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        var busy = false;
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            Future<void> approve() async {
+              if (busy || unsupported) return;
+              setDialogState(() => busy = true);
+              final chainRef = _parseChainReference(request.chainId);
+              if (chainRef != null) {
+                final authed = await _ensureWalletConnectAuth(
+                  chainId: chainRef,
+                  method: request.method,
+                  session: session,
+                );
+                if (!authed) {
+                  setDialogState(() => busy = false);
+                  return;
+                }
+              }
+              try {
+                final response = await _wcRouter.dispatch(
+                  event: request,
+                  session: session,
+                  signers: _wcSigners,
+                );
+                await _wcClient.respond(
+                  topic: request.topic,
+                  response: response,
+                );
+                handled = true;
+                if (Navigator.of(dialogContext).canPop()) {
+                  Navigator.of(dialogContext).pop();
+                }
+                ScaffoldMessenger.maybeOf(navContext)?.showSnackBar(
+                  SnackBar(
+                    content: Text('${request.method} approved for the dApp.'),
+                  ),
+                );
+              } catch (e) {
+                debugPrint('WalletConnect request failed: $e');
+                ScaffoldMessenger.maybeOf(navContext)?.showSnackBar(
+                  SnackBar(
+                    content: Text('Failed to handle ${request.method}: $e'),
+                  ),
+                );
+                setDialogState(() => busy = false);
+              }
+            }
+
+            Future<void> reject() async {
+              if (busy) return;
+              setDialogState(() => busy = true);
+              final response = JsonRpcResponse<Object?>(
+                id: request.id,
+                error: const JsonRpcError(
+                  code: 4001,
+                  message: 'User rejected.',
+                ),
+              );
+              try {
+                await _wcClient.respond(
+                  topic: request.topic,
+                  response: response,
+                );
+                handled = true;
+                if (Navigator.of(dialogContext).canPop()) {
+                  Navigator.of(dialogContext).pop();
+                }
+                ScaffoldMessenger.maybeOf(navContext)?.showSnackBar(
+                  SnackBar(content: Text('${request.method} rejected.')),
+                );
+              } catch (e) {
+                debugPrint('WalletConnect rejection failed: $e');
+                ScaffoldMessenger.maybeOf(navContext)?.showSnackBar(
+                  SnackBar(
+                    content: Text('Failed to reject ${request.method}: $e'),
+                  ),
+                );
+                setDialogState(() => busy = false);
+              }
+            }
+
+            return WcRequestModal(
+              request: request,
+              session: session,
+              busy: busy,
+              unsupported: unsupported,
+              onApprove: approve,
+              onReject: reject,
+            );
+          },
+        );
+      },
+    );
+
+    if (!handled && mounted && _wcClient.pendingRequests.containsKey(request.id)) {
+      debugPrint('WalletConnect request ${request.id} remains pending.');
+    }
+    _scheduleWalletConnectPump();
+  }
+
+  Future<bool> _ensureWalletConnectAuth({
+    required int chainId,
+    required String method,
+    required SessionData session,
+  }) async {
+    if (!_settings.requireAuthForChain(chainId)) {
+      return true;
+    }
+    final dappName =
+        session.peer.metadata.name.isEmpty ? 'the connected dApp' : session.peer.metadata.name;
+    final reason =
+        'Authenticate to ${method.trim()} on ${_describeChainLabel(chainId)} for $dappName';
+    return _authenticateForAction(reason);
+  }
+
+  String _describeChainLabel(int chainId) {
+    switch (chainId) {
+      case 8453:
+        return 'Base Mainnet (8453)';
+      case 84532:
+        return 'Base Sepolia (84532)';
+      default:
+        return 'chain $chainId';
     }
   }
 
@@ -332,7 +866,10 @@ class _PQCAppState extends State<PQCApp> {
                   : null,
             )));
     final s = await _settingsStore.load();
+    if (!mounted) return;
     setState(() => _settings = s);
+    _rebuildWcSigners();
+    _scheduleWalletConnectPump();
   }
 
   Future<void> _promptWalletConnectPairing() async {
@@ -350,111 +887,10 @@ class _PQCAppState extends State<PQCApp> {
       return;
     }
 
-    final controller = TextEditingController();
-    final scanner = QrBarCodeScannerDialog();
-    String? errorText;
-
     final uriText = await showDialog<String>(
       context: navContext,
-      builder: (dialogContext) {
-        return StatefulBuilder(
-          builder: (context, setDialogState) {
-            Future<void> handleScan() async {
-              try {
-                await Future<void>.sync(
-                  () => scanner.getScannedQrBarCode(
-                    context: context,
-                    onCode: (value) {
-                      if (value == null || value.isEmpty) {
-                        return;
-                      }
-                      final trimmed = value.trim();
-                      setDialogState(() {
-                        controller.text = trimmed;
-                        controller.selection = TextSelection.fromPosition(
-                          TextPosition(offset: controller.text.length),
-                        );
-                        errorText = null;
-                      });
-                    },
-                  ),
-                );
-              } catch (e) {
-                ScaffoldMessenger.maybeOf(navContext)?.showSnackBar(
-                  SnackBar(content: Text('QR scan failed: $e')),
-                );
-              }
-            }
-
-            return AlertDialog(
-              backgroundColor: Theme.of(context).colorScheme.surface,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-              ),
-              title: const Text('Connect dApp (Reown)'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'Scan the QR code or paste the WalletConnect URI shared by the dApp.',
-                  ),
-                  const SizedBox(height: 12),
-                  TextField(
-                    controller: controller,
-                    autofocus: true,
-                    minLines: 1,
-                    maxLines: 3,
-                    decoration: InputDecoration(
-                      hintText: 'wc:...',
-                      errorText: errorText,
-                      suffixIcon: IconButton(
-                        icon: const Icon(Icons.paste),
-                        onPressed: () async {
-                          final data = await Clipboard.getData('text/plain');
-                          final text = data?.text?.trim() ?? '';
-                          if (text.isEmpty) {
-                            return;
-                          }
-                          setDialogState(() {
-                            controller.text = text;
-                            controller.selection = TextSelection.fromPosition(
-                              TextPosition(offset: controller.text.length),
-                            );
-                            errorText = null;
-                          });
-                        },
-                      ),
-                    ),
-                    onChanged: (_) => setDialogState(() => errorText = null),
-                  ),
-                  const SizedBox(height: 12),
-                  OutlinedButton.icon(
-                    onPressed: handleScan,
-                    icon: const Icon(Icons.qr_code_scanner),
-                    label: const Text('Scan QR code'),
-                  ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(),
-                  child: const Text('Cancel'),
-                ),
-                ElevatedButton(
-                  onPressed: controller.text.trim().isEmpty
-                      ? null
-                      : () => Navigator.of(context).pop(controller.text.trim()),
-                  child: const Text('Connect'),
-                ),
-              ],
-            );
-          },
-        );
-      },
+      builder: (_) => _WalletConnectPairingDialog(parentContext: navContext),
     );
-
-    controller.dispose();
     if (uriText == null || uriText.isEmpty) {
       return;
     }
@@ -528,7 +964,11 @@ class _PQCAppState extends State<PQCApp> {
       _walletSetupError = null;
       _unlockFailed = false;
       _saveFailed = false;
+      _registeredWcAccounts.clear();
     });
+    _rebuildWcSigners();
+    await _registerWalletConnectAccounts();
+    _scheduleWalletConnectPump();
   }
 
   Future<void> _handleImportPrivateKey() async {
@@ -571,7 +1011,11 @@ class _PQCAppState extends State<PQCApp> {
         _walletSetupError = null;
         _unlockFailed = false;
         _saveFailed = false;
+        _registeredWcAccounts.clear();
       });
+      _rebuildWcSigners();
+      await _registerWalletConnectAccounts();
+      _scheduleWalletConnectPump();
     } on ArgumentError catch (e) {
       final message = e.message ?? e.toString();
       setState(() {
@@ -851,6 +1295,15 @@ class WalletMenuDrawer extends StatelessWidget {
       ),
     );
   }
+}
+
+class _NamespaceDraft {
+  _NamespaceDraft();
+
+  final Set<String> chains = <String>{};
+  final Set<String> accounts = <String>{};
+  final Set<String> methods = <String>{};
+  final Set<String> events = <String>{};
 }
 
 class _WalletAccountTile extends StatelessWidget {
@@ -1135,6 +1588,143 @@ class _BodyState extends State<_Body> {
     final chainId = widget.cfg['chainId'];
     await pendingStore.clear(chainId, wallet.hex);
     widget.setStatus('pendingIndex cleared (canceled by user).');
+  }
+}
+
+class _WalletConnectPairingDialog extends StatefulWidget {
+  const _WalletConnectPairingDialog({required this.parentContext});
+
+  final BuildContext parentContext;
+
+  @override
+  State<_WalletConnectPairingDialog> createState() =>
+      _WalletConnectPairingDialogState();
+}
+
+class _WalletConnectPairingDialogState
+    extends State<_WalletConnectPairingDialog> {
+  late final TextEditingController _controller;
+  final QrBarCodeScannerDialog _scanner = QrBarCodeScannerDialog();
+  String? _errorText;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _handleScan() async {
+    try {
+      await Future<void>.sync(
+        () => _scanner.getScannedQrBarCode(
+          context: context,
+          onCode: (value) {
+            if (!mounted || value == null) {
+              return;
+            }
+            final trimmed = value.trim();
+            if (trimmed.isEmpty) {
+              return;
+            }
+            setState(() {
+              _controller.text = trimmed;
+              _controller.selection = TextSelection.fromPosition(
+                TextPosition(offset: _controller.text.length),
+              );
+              _errorText = null;
+            });
+          },
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.maybeOf(widget.parentContext)?.showSnackBar(
+        SnackBar(content: Text('QR scan failed: $e')),
+      );
+    }
+  }
+
+  Future<void> _handlePaste() async {
+    final data = await Clipboard.getData('text/plain');
+    final text = data?.text?.trim() ?? '';
+    if (text.isEmpty) {
+      return;
+    }
+    setState(() {
+      _controller.text = text;
+      _controller.selection = TextSelection.fromPosition(
+        TextPosition(offset: _controller.text.length),
+      );
+      _errorText = null;
+    });
+  }
+
+  void _handleChanged(String _) {
+    if (_errorText != null) {
+      setState(() => _errorText = null);
+    }
+  }
+
+  bool get _hasInput => _controller.text.trim().isNotEmpty;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return AlertDialog(
+      backgroundColor: theme.colorScheme.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+      ),
+      title: const Text('Connect dApp (Reown)'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Scan the QR code or paste the WalletConnect URI shared by the dApp.',
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _controller,
+            autofocus: true,
+            minLines: 1,
+            maxLines: 3,
+            decoration: InputDecoration(
+              hintText: 'wc:...',
+              errorText: _errorText,
+              suffixIcon: IconButton(
+                icon: const Icon(Icons.paste),
+                onPressed: _handlePaste,
+              ),
+            ),
+            onChanged: _handleChanged,
+          ),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: _handleScan,
+            icon: const Icon(Icons.qr_code_scanner),
+            label: const Text('Scan QR code'),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        ElevatedButton(
+          onPressed: _hasInput
+              ? () => Navigator.of(context).pop(_controller.text.trim())
+              : null,
+          child: const Text('Connect'),
+        ),
+      ],
+    );
   }
 }
 

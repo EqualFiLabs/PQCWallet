@@ -115,14 +115,18 @@ class WcClient extends ChangeNotifier {
     required Map<String, Namespace> namespaces,
     Map<String, String>? sessionProperties,
     String? relayProtocol,
-  }) {
+  }) async {
     final kit = _requireKit();
-    return kit.approveSession(
+    final result = await kit.approveSession(
       id: id,
       namespaces: namespaces,
       sessionProperties: sessionProperties,
       relayProtocol: relayProtocol,
     );
+    if (_pendingProposals.remove(id) != null) {
+      notifyListeners();
+    }
+    return result;
   }
 
   Future<void> reject({
@@ -131,9 +135,12 @@ class WcClient extends ChangeNotifier {
       code: 5000,
       message: 'User rejected the proposal',
     ),
-  }) {
+  }) async {
     final kit = _requireKit();
-    return kit.rejectSession(id: id, reason: reason);
+    await kit.rejectSession(id: id, reason: reason);
+    if (_pendingProposals.remove(id) != null) {
+      notifyListeners();
+    }
   }
 
   Future<void> disconnect({
@@ -155,9 +162,13 @@ class WcClient extends ChangeNotifier {
   Future<void> respond({
     required String topic,
     required JsonRpcResponse response,
-  }) {
+  }) async {
     final kit = _requireKit();
-    return kit.respondSessionRequest(topic: topic, response: response);
+    await kit.respondSessionRequest(topic: topic, response: response);
+    final responseId = response.id;
+    if (responseId is int && _pendingRequests.remove(responseId) != null) {
+      notifyListeners();
+    }
   }
 
   Future<void> openSessionsScreen() async {

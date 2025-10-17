@@ -1,7 +1,11 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reown_walletkit/reown_walletkit.dart';
 
+import 'package:pqc_wallet/walletconnect/wc_client.dart';
 import 'package:pqc_wallet/services/rpc.dart';
+import 'package:pqc_wallet/walletconnect/wc_session_store.dart';
 import 'package:pqc_wallet/walletconnect/wc_router.dart';
 import 'package:pqc_wallet/walletconnect/wc_signer.dart';
 
@@ -11,6 +15,67 @@ class _StubRpcClient extends RpcClient {
   @override
   Future<dynamic> call(String method, [dynamic params]) {
     throw UnsupportedError('RPC not available: $method');
+  }
+}
+
+class _MemorySecureStorage extends FlutterSecureStorage {
+  final Map<String, String> _store = <String, String>{};
+
+  _MemorySecureStorage();
+
+  @override
+  Future<void> write({
+    required String key,
+    required String? value,
+    IOSOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    MacOsOptions? mOptions,
+    WindowsOptions? wOptions,
+  }) async {
+    if (value == null) {
+      _store.remove(key);
+    } else {
+      _store[key] = value;
+    }
+  }
+
+  @override
+  Future<String?> read({
+    required String key,
+    IOSOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    MacOsOptions? mOptions,
+    WindowsOptions? wOptions,
+  }) async =>
+      _store[key];
+
+  @override
+  Future<void> delete({
+    required String key,
+    IOSOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    MacOsOptions? mOptions,
+    WindowsOptions? wOptions,
+  }) async {
+    _store.remove(key);
+  }
+
+  @override
+  Future<void> deleteAll({
+    IOSOptions? iOptions,
+    AndroidOptions? aOptions,
+    LinuxOptions? lOptions,
+    WebOptions? webOptions,
+    MacOsOptions? mOptions,
+    WindowsOptions? wOptions,
+  }) async {
+    _store.clear();
   }
 }
 
@@ -46,6 +111,16 @@ Future<SessionData> _buildSession(WcSigner signer, int chainId) async {
 }
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+  final wcClient = WcClient(
+    sessionStore: WcSessionStore(
+      storage: _MemorySecureStorage(),
+      storageKey: 'test.wc.sessions',
+    ),
+    navigatorKey: GlobalKey<NavigatorState>(),
+  );
+  final router = WcRouter(client: wcClient);
+
   group('WcRouter rejections', () {
     const privateKey =
         '0x59c6995e998f97a5a0044966f0945388cf9f7b78a0b21b1b2de54c2d343f8f5b';
@@ -54,7 +129,6 @@ void main() {
       credentials: credentials,
       rpcClient: _StubRpcClient(),
     );
-    final router = const WcRouter();
 
     test('rejects requests for unauthorized chains', () async {
       final session = await _buildSession(signer, 1);

@@ -4,15 +4,18 @@ import 'package:flutter/material.dart';
 import 'package:reown_walletkit/reown_walletkit.dart';
 
 import 'ui/wc_sessions_screen.dart';
+import 'wc_client.dart';
 import 'wc_signer.dart';
 
 class WcRouter {
-  const WcRouter();
+  const WcRouter({required this.client});
+
+  final WcClient client;
 
   Route<dynamic>? onGenerateRoute(RouteSettings settings) {
     if (settings.name == WcSessionsScreen.routeName) {
       return MaterialPageRoute<void>(
-        builder: (context) => const WcSessionsScreen(),
+        builder: (context) => WcSessionsScreen(client: client),
         settings: settings,
       );
     }
@@ -25,27 +28,18 @@ class WcRouter {
     required Map<int, WcSigner> signers,
   }) async {
     try {
-      final chainId = _parseChainId(event.chainId);
-      final signer = signers[chainId];
-      if (signer == null) {
-        throw _WcRouterRejection('No signer available for chain $chainId');
-      }
-
-      final signerAddress = (await signer.address).hexEip55.toLowerCase();
-      final approvedAddresses =
-          _approvedAddressesForChain(session, event.chainId);
-      if (!approvedAddresses.contains(signerAddress)) {
-        throw _WcRouterRejection(
-          'Signer address $signerAddress is not approved for ${event.chainId}',
-        );
-      }
+      final context = await _prepareContext(
+        event: event,
+        session: session,
+        signers: signers,
+      );
 
       final result = await _handleRequest(
         event: event,
-        signer: signer,
-        chainId: chainId,
-        signerAddress: signerAddress,
-        approvedAddresses: approvedAddresses,
+        signer: context.signer,
+        chainId: context.chainId,
+        signerAddress: context.signerAddress,
+        approvedAddresses: context.approvedAddresses,
       );
 
       return JsonRpcResponse<Object?>(
@@ -59,6 +53,51 @@ class WcRouter {
         error: const JsonRpcError(code: 4001, message: 'User rejected.'),
       );
     }
+  }
+
+  Future<bool> supports({
+    required SessionRequestEvent event,
+    required SessionData session,
+    required Map<int, WcSigner> signers,
+  }) async {
+    try {
+      await _prepareContext(
+        event: event,
+        session: session,
+        signers: signers,
+      );
+      return true;
+    } on _WcRouterRejection {
+      return false;
+    }
+  }
+
+  Future<_RequestContext> _prepareContext({
+    required SessionRequestEvent event,
+    required SessionData session,
+    required Map<int, WcSigner> signers,
+  }) async {
+    final chainId = _parseChainId(event.chainId);
+    final signer = signers[chainId];
+    if (signer == null) {
+      throw _WcRouterRejection('No signer available for chain $chainId');
+    }
+
+    final signerAddress = (await signer.address).hexEip55.toLowerCase();
+    final approvedAddresses =
+        _approvedAddressesForChain(session, event.chainId);
+    if (!approvedAddresses.contains(signerAddress)) {
+      throw _WcRouterRejection(
+        'Signer address $signerAddress is not approved for ${event.chainId}',
+      );
+    }
+
+    return _RequestContext(
+      chainId: chainId,
+      signer: signer,
+      signerAddress: signerAddress,
+      approvedAddresses: approvedAddresses,
+    );
   }
 
   Future<String> _handleRequest({
@@ -305,4 +344,18 @@ class _WcRouterRejection implements Exception {
   const _WcRouterRejection(this.message);
 
   final String message;
+}
+
+class _RequestContext {
+  const _RequestContext({
+    required this.chainId,
+    required this.signer,
+    required this.signerAddress,
+    required this.approvedAddresses,
+  });
+
+  final int chainId;
+  final WcSigner signer;
+  final String signerAddress;
+  final Set<String> approvedAddresses;
 }
