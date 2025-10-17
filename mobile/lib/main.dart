@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'
     show Clipboard, TextPosition, TextSelection, rootBundle;
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:reown_walletkit/reown_walletkit.dart';
 import 'package:qr_bar_code_scanner_dialog/qr_bar_code_scanner_dialog.dart';
 import 'package:web3dart/crypto.dart' as w3;
@@ -31,6 +30,7 @@ import 'ui/send_token_sheet.dart';
 import 'ui/wallet_setup.dart';
 import 'walletconnect/walletconnect.dart';
 import 'utils/address.dart';
+import 'services/secure_storage.dart';
 
 void main() => runApp(const PQCApp());
 
@@ -61,9 +61,9 @@ class _PQCAppState extends State<PQCApp> {
 
   late ThemeData _theme;
   Map<String, dynamic>? _cfg;
-  final FlutterSecureStorage _secureStorage = const FlutterSecureStorage();
+  final SecureStorage _secureStorage = SecureStorage.instance;
   final BiometricService _biometric = BiometricService();
-  final PinService _pinService = const PinService();
+  final PinService _pinService = PinService();
   final GlobalKey<NavigatorState> _navKey = GlobalKey<NavigatorState>();
   final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
   late final WcClient _wcClient;
@@ -208,7 +208,7 @@ class _PQCAppState extends State<PQCApp> {
     if (!allowed) {
       return (secret: null, authorized: false, hadCorruptData: false);
     }
-    final value = await _secureStorage.read(key: _walletSecretKey);
+    final value = await _secureStorage.read(_walletSecretKey);
     if (value == null) {
       return (secret: null, authorized: true, hadCorruptData: false);
     }
@@ -226,7 +226,7 @@ class _PQCAppState extends State<PQCApp> {
       return false;
     }
     final encoded = WalletSecretCodec.encode(secret);
-    await _secureStorage.write(key: _walletSecretKey, value: encoded);
+    await _secureStorage.write(_walletSecretKey, encoded);
     return true;
   }
 
@@ -560,7 +560,8 @@ class _PQCAppState extends State<PQCApp> {
                   Navigator.of(context).pop();
                 }
                 ScaffoldMessenger.maybeOf(navContext)?.showSnackBar(
-                  const SnackBar(content: Text('WalletConnect session rejected.')),
+                  const SnackBar(
+                      content: Text('WalletConnect session rejected.')),
                 );
               } catch (e) {
                 debugPrint('WalletConnect reject failed: $e');
@@ -810,7 +811,9 @@ class _PQCAppState extends State<PQCApp> {
       },
     );
 
-    if (!handled && mounted && _wcClient.pendingRequests.containsKey(request.id)) {
+    if (!handled &&
+        mounted &&
+        _wcClient.pendingRequests.containsKey(request.id)) {
       debugPrint('WalletConnect request ${request.id} remains pending.');
     }
     _scheduleWalletConnectPump();
@@ -824,8 +827,9 @@ class _PQCAppState extends State<PQCApp> {
     if (!_settings.requireAuthForChain(chainId)) {
       return true;
     }
-    final dappName =
-        session.peer.metadata.name.isEmpty ? 'the connected dApp' : session.peer.metadata.name;
+    final dappName = session.peer.metadata.name.isEmpty
+        ? 'the connected dApp'
+        : session.peer.metadata.name;
     final reason =
         'Authenticate to ${method.trim()} on ${_describeChainLabel(chainId)} for $dappName';
     return _authenticateForAction(reason);
@@ -1747,9 +1751,12 @@ class _SecurityConfigView extends StatelessWidget {
         const SizedBox(height: 8),
         _Card(child: SelectableText('Aggregator: ${cfg['aggregator']}')),
         const SizedBox(height: 8),
-        _Card(child: SelectableText('ProverRegistry: ${cfg['proverRegistry']}')),
+        _Card(
+            child: SelectableText('ProverRegistry: ${cfg['proverRegistry']}')),
         const SizedBox(height: 8),
-        _Card(child: SelectableText('ForceOnChainVerify: ${cfg['forceOnChainVerify']}')),
+        _Card(
+            child: SelectableText(
+                'ForceOnChainVerify: ${cfg['forceOnChainVerify']}')),
       ],
     );
   }

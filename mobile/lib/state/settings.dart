@@ -1,5 +1,6 @@
 import 'dart:convert';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import '../services/key_value_store.dart';
+import '../services/secure_storage.dart';
 
 class AppSettings {
   static const Object _noChange = Object();
@@ -52,16 +53,19 @@ class AppSettings {
 }
 
 class SettingsStore {
-  final FlutterSecureStorage _ss = const FlutterSecureStorage();
+  SettingsStore({KeyValueStore? store})
+      : _store = store ?? SecureStorage.instance;
+
+  final KeyValueStore _store;
   final String _key = 'pqcwallet/settings';
 
   Future<AppSettings> load() async {
-    final s = await _ss.read(key: _key);
+    final s = await _store.read(_key);
     if (s == null) return const AppSettings();
     return AppSettings.fromJson(jsonDecode(s) as Map<String, dynamic>);
   }
 
   Future<void> save(AppSettings s) async {
-    await _ss.write(key: _key, value: jsonEncode(s.toJson()));
+    await _store.write(_key, jsonEncode(s.toJson()));
   }
 }

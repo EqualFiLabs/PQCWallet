@@ -1,24 +1,28 @@
 import 'dart:convert';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import 'key_value_store.dart';
+import 'secure_storage.dart';
 
 class PendingIndexStore {
-  final FlutterSecureStorage _ss = const FlutterSecureStorage();
+  final KeyValueStore _store;
+
+  PendingIndexStore({KeyValueStore? store})
+      : _store = store ?? SecureStorage.instance;
 
   String _key(int chainId, String wallet) =>
       'pqcwallet/pendingIndex/\$chainId/\${wallet.toLowerCase()}';
 
   Future<void> save(
       int chainId, String wallet, Map<String, dynamic> data) async {
-    await _ss.write(key: _key(chainId, wallet), value: jsonEncode(data));
+    await _store.write(_key(chainId, wallet), jsonEncode(data));
   }
 
   Future<Map<String, dynamic>?> load(int chainId, String wallet) async {
-    final s = await _ss.read(key: _key(chainId, wallet));
+    final s = await _store.read(_key(chainId, wallet));
     if (s == null) return null;
     return jsonDecode(s) as Map<String, dynamic>;
   }
 
   Future<void> clear(int chainId, String wallet) async {
-    await _ss.delete(key: _key(chainId, wallet));
+    await _store.delete(_key(chainId, wallet));
   }
 }

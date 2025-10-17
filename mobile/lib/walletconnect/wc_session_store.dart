@@ -1,21 +1,22 @@
 import 'dart:convert';
 
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
+import '../services/key_value_store.dart';
+import '../services/secure_storage.dart';
 
 class WcSessionStore {
-  const WcSessionStore({
-    FlutterSecureStorage? storage,
+  WcSessionStore({
+    KeyValueStore? storage,
     String storageKey = _defaultStorageKey,
-  })  : _storage = storage ?? const FlutterSecureStorage(),
+  })  : _storage = storage ?? SecureStorage.instance,
         _storageKey = storageKey;
 
   static const String _defaultStorageKey = 'walletconnect.sessions';
 
-  final FlutterSecureStorage _storage;
+  final KeyValueStore _storage;
   final String _storageKey;
 
   Future<Map<String, Map<String, Object?>>> loadSessions() async {
-    final raw = await _storage.read(key: _storageKey);
+    final raw = await _storage.read(_storageKey);
     if (raw == null || raw.isEmpty) {
       return <String, Map<String, Object?>>{};
     }
@@ -24,7 +25,7 @@ class WcSessionStore {
     try {
       decoded = jsonDecode(raw) as Map<String, dynamic>;
     } on FormatException {
-      await _storage.delete(key: _storageKey);
+      await _storage.delete(_storageKey);
       return <String, Map<String, Object?>>{};
     }
 
@@ -75,8 +76,7 @@ class WcSessionStore {
       if (value is Map<String, Object?>) {
         copy[entry.key] = _deepCopy(value);
       } else if (value is Map) {
-        copy[entry.key] =
-            _deepCopy(value.cast<String, Object?>());
+        copy[entry.key] = _deepCopy(value.cast<String, Object?>());
       } else if (value is List) {
         copy[entry.key] = List<Object?>.from(value);
       } else {
@@ -88,7 +88,7 @@ class WcSessionStore {
 
   Future<void> _writeAll(Map<String, Map<String, Object?>> sessions) async {
     if (sessions.isEmpty) {
-      await _storage.delete(key: _storageKey);
+      await _storage.delete(_storageKey);
       return;
     }
 
@@ -97,7 +97,7 @@ class WcSessionStore {
       encoded[entry.key] = _normalise(entry.value);
     }
 
-    await _storage.write(key: _storageKey, value: jsonEncode(encoded));
+    await _storage.write(_storageKey, jsonEncode(encoded));
   }
 
   Object? _normalise(Object? value) {
@@ -105,8 +105,8 @@ class WcSessionStore {
       return value.map((key, dynamic v) => MapEntry(key, _normalise(v)));
     }
     if (value is Map) {
-      return value.map((dynamic key, dynamic v) =>
-          MapEntry(key.toString(), _normalise(v)));
+      return value.map(
+          (dynamic key, dynamic v) => MapEntry(key.toString(), _normalise(v)));
     }
     if (value is Iterable) {
       return value.map<Object?>(_normalise).toList();

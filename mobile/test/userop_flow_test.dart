@@ -1,4 +1,3 @@
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:web3dart/web3dart.dart';
 import 'package:pqc_wallet/crypto/mnemonic.dart';
@@ -7,6 +6,7 @@ import 'package:pqc_wallet/userop/userop_flow.dart';
 import 'package:pqc_wallet/services/rpc.dart';
 import 'package:pqc_wallet/services/bundler_client.dart';
 import 'package:pqc_wallet/state/settings.dart';
+import 'support/memory_store.dart';
 
 class MockRpc extends RpcClient {
   int _i = 0;
@@ -69,12 +69,12 @@ class MockBundler extends BundlerClient {
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  FlutterSecureStorage.setMockInitialValues({});
+  final memory = MemoryStore();
 
   test('reuses hybrid signature when userOpHash unchanged', () async {
     final rpc = MockRpc();
     final bundler = MockBundler();
-    final store = PendingIndexStore();
+    final store = PendingIndexStore(store: memory);
     final keys = deriveFromMnemonic(null);
     final cfg = {
       'chainId': 1,

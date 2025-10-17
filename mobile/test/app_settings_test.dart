@@ -1,17 +1,17 @@
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pqc_wallet/state/settings.dart';
+import 'support/memory_store.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
-  FlutterSecureStorage.setMockInitialValues({});
+  final memory = MemoryStore();
 
   test('settings persistence and gating logic', () async {
-    final store = SettingsStore();
+    final store = SettingsStore(store: memory);
     var s = await store.load();
     expect(s.biometricOnTestnets, isFalse);
     expect(s.useBiometric, isFalse);
-     expect(s.customRpcUrl, isNull);
+    expect(s.customRpcUrl, isNull);
     expect(s.requireAuthForChain(8453), isTrue);
     expect(s.requireAuthForChain(84532), isFalse);
     s = s.copyWith(

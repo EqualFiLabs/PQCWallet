@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reown_walletkit/reown_walletkit.dart';
 
@@ -8,6 +7,7 @@ import 'package:pqc_wallet/services/rpc.dart';
 import 'package:pqc_wallet/walletconnect/wc_session_store.dart';
 import 'package:pqc_wallet/walletconnect/wc_router.dart';
 import 'package:pqc_wallet/walletconnect/wc_signer.dart';
+import 'support/memory_store.dart';
 
 class _StubRpcClient extends RpcClient {
   _StubRpcClient() : super('http://localhost');
@@ -15,67 +15,6 @@ class _StubRpcClient extends RpcClient {
   @override
   Future<dynamic> call(String method, [dynamic params]) {
     throw UnsupportedError('RPC not available: $method');
-  }
-}
-
-class _MemorySecureStorage extends FlutterSecureStorage {
-  final Map<String, String> _store = <String, String>{};
-
-  _MemorySecureStorage();
-
-  @override
-  Future<void> write({
-    required String key,
-    required String? value,
-    IOSOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    MacOsOptions? mOptions,
-    WindowsOptions? wOptions,
-  }) async {
-    if (value == null) {
-      _store.remove(key);
-    } else {
-      _store[key] = value;
-    }
-  }
-
-  @override
-  Future<String?> read({
-    required String key,
-    IOSOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    MacOsOptions? mOptions,
-    WindowsOptions? wOptions,
-  }) async =>
-      _store[key];
-
-  @override
-  Future<void> delete({
-    required String key,
-    IOSOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    MacOsOptions? mOptions,
-    WindowsOptions? wOptions,
-  }) async {
-    _store.remove(key);
-  }
-
-  @override
-  Future<void> deleteAll({
-    IOSOptions? iOptions,
-    AndroidOptions? aOptions,
-    LinuxOptions? lOptions,
-    WebOptions? webOptions,
-    MacOsOptions? mOptions,
-    WindowsOptions? wOptions,
-  }) async {
-    _store.clear();
   }
 }
 
@@ -88,7 +27,9 @@ Future<SessionData> _buildSession(WcSigner signer, int chainId) async {
     topic: 'topic',
     pairingTopic: 'pairing',
     relay: Relay('irn'),
-    expiry: DateTime.now().add(const Duration(days: 1)).millisecondsSinceEpoch ~/ 1000,
+    expiry:
+        DateTime.now().add(const Duration(days: 1)).millisecondsSinceEpoch ~/
+            1000,
     acknowledged: true,
     controller: address,
     namespaces: {
@@ -114,7 +55,7 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   final wcClient = WcClient(
     sessionStore: WcSessionStore(
-      storage: _MemorySecureStorage(),
+      storage: MemoryStore(),
       storageKey: 'test.wc.sessions',
     ),
     navigatorKey: GlobalKey<NavigatorState>(),
