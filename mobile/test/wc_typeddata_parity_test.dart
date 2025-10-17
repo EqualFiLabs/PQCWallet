@@ -2,7 +2,17 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:web3dart/credentials.dart';
 import 'package:web3dart/crypto.dart' as w3;
 
+import 'package:pqc_wallet/services/rpc.dart';
 import 'package:pqc_wallet/walletconnect/wc_signer.dart';
+
+class _StubRpcClient extends RpcClient {
+  _StubRpcClient() : super('http://localhost');
+
+  @override
+  Future<dynamic> call(String method, [dynamic params]) {
+    throw UnsupportedError('Unexpected RPC call: $method');
+  }
+}
 
 void main() {
   group('WcSigner typed data parity', () {
@@ -12,6 +22,7 @@ void main() {
       credentials: EthPrivateKey.fromHex(
         privateKey.startsWith('0x') ? privateKey.substring(2) : privateKey,
       ),
+      rpcClient: _StubRpcClient(),
     );
 
     test('matches DAI permit digest and signature', () async {
