@@ -6,6 +6,8 @@ import '../state/settings.dart';
 import '../models/activity.dart';
 import '../services/activity_store.dart';
 import '../services/eoa_transactions.dart';
+import '../utils/amounts.dart';
+import '../utils/config.dart';
 
 class SendTokenSheet extends StatefulWidget {
   final Map<String, dynamic> cfg;
@@ -58,29 +60,19 @@ class _SendTokenSheetState extends State<SendTokenSheet> {
     super.dispose();
   }
 
-  BigInt _pow10(int d) => BigInt.from(10).pow(d);
-
-  BigInt _parseAmount(String v, int decimals) {
-    final parts = v.split('.');
-    final whole = parts[0].isEmpty ? BigInt.zero : BigInt.parse(parts[0]);
-    var frac = parts.length > 1 ? parts[1] : '';
-    if (frac.length > decimals) {
-      frac = frac.substring(0, decimals);
-    }
-    final fracVal =
-        frac.isEmpty ? BigInt.zero : BigInt.parse(frac.padRight(decimals, '0'));
-    return whole * _pow10(decimals) + fracVal;
-  }
-
   Future<void> _send() async {
     if (registry == null) return;
     final token = selected;
     final tokenInfo = registry!.token(token)!;
     final decimals = (tokenInfo['decimals'] as num).toInt();
     final amtStr = amtCtrl.text.trim();
-    final amount = _parseAmount(amtStr, decimals);
+    final amount = parseDecimalAmount(
+      amtStr,
+      decimals: decimals,
+      treatEmptyAsZero: true,
+    );
     final to = toCtrl.text.trim();
-    final chainId = widget.cfg['chainId'] as int;
+    final chainId = requireChainId(widget.cfg);
     final tokenAddr = registry!.tokenAddress(token, chainId)!;
     if (to.isEmpty) {
       debugPrint('send error: missing recipient');
@@ -97,20 +89,23 @@ class _SendTokenSheetState extends State<SendTokenSheet> {
           amount: amount,
         );
         final ts = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-        await widget.store.upsertByUserOpHash(txHash, (existing) =>
-            existing?.copyWith(status: ActivityStatus.pending, txHash: txHash) ??
-            ActivityItem(
-              userOpHash: txHash,
-              to: to,
-              display: '$amtStr $token',
-              ts: ts,
-              status: ActivityStatus.pending,
-              chainId: chainId,
-              opKind: 'erc20',
-              tokenSymbol: token,
-              tokenAddress: tokenAddr,
-              txHash: txHash,
-            ));
+        await widget.store.upsertByUserOpHash(
+            txHash,
+            (existing) =>
+                existing?.copyWith(
+                    status: ActivityStatus.pending, txHash: txHash) ??
+                ActivityItem(
+                  userOpHash: txHash,
+                  to: to,
+                  display: '$amtStr $token',
+                  ts: ts,
+                  status: ActivityStatus.pending,
+                  chainId: chainId,
+                  opKind: 'erc20',
+                  tokenSymbol: token,
+                  tokenAddress: tokenAddr,
+                  txHash: txHash,
+                ));
       } else {
         final uoh = await widget.flow.sendToken(
           cfg: widget.cfg,
@@ -126,19 +121,21 @@ class _SendTokenSheetState extends State<SendTokenSheet> {
           log: (m) => debugPrint(m),
           selectFees: (f) async => f,
         );
-        await widget.store.upsertByUserOpHash(uoh, (existing) =>
-            existing?.copyWith(status: ActivityStatus.sent) ??
-            ActivityItem(
-              userOpHash: uoh,
-              to: to,
-              display: '$amtStr $token',
-              ts: DateTime.now().millisecondsSinceEpoch ~/ 1000,
-              status: ActivityStatus.sent,
-              chainId: chainId,
-              opKind: 'erc20',
-              tokenSymbol: token,
-              tokenAddress: tokenAddr,
-            ));
+        await widget.store.upsertByUserOpHash(
+            uoh,
+            (existing) =>
+                existing?.copyWith(status: ActivityStatus.sent) ??
+                ActivityItem(
+                  userOpHash: uoh,
+                  to: to,
+                  display: '$amtStr $token',
+                  ts: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+                  status: ActivityStatus.sent,
+                  chainId: chainId,
+                  opKind: 'erc20',
+                  tokenSymbol: token,
+                  tokenAddress: tokenAddr,
+                ));
       }
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
@@ -154,9 +151,13 @@ class _SendTokenSheetState extends State<SendTokenSheet> {
     final tokenInfo = registry!.token(token)!;
     final decimals = (tokenInfo['decimals'] as num).toInt();
     final amtStr = approveAmtCtrl.text.trim();
-    final amount = _parseAmount(amtStr, decimals);
+    final amount = parseDecimalAmount(
+      amtStr,
+      decimals: decimals,
+      treatEmptyAsZero: true,
+    );
     final spender = spenderCtrl.text.trim();
-    final chainId = widget.cfg['chainId'] as int;
+    final chainId = requireChainId(widget.cfg);
     final tokenAddr = registry!.tokenAddress(token, chainId)!;
     if (spender.isEmpty) {
       debugPrint('approve error: missing spender');
@@ -172,20 +173,23 @@ class _SendTokenSheetState extends State<SendTokenSheet> {
         amount: amount,
       );
       final ts = DateTime.now().millisecondsSinceEpoch ~/ 1000;
-      await widget.store.upsertByUserOpHash(txHash, (existing) =>
-          existing?.copyWith(status: ActivityStatus.pending, txHash: txHash) ??
-          ActivityItem(
-            userOpHash: txHash,
-            to: spender,
-            display: 'Approve $amtStr $token',
-            ts: ts,
-            status: ActivityStatus.pending,
-            chainId: chainId,
-            opKind: 'erc20',
-            tokenSymbol: token,
-            tokenAddress: tokenAddr,
-            txHash: txHash,
-          ));
+      await widget.store.upsertByUserOpHash(
+          txHash,
+          (existing) =>
+              existing?.copyWith(
+                  status: ActivityStatus.pending, txHash: txHash) ??
+              ActivityItem(
+                userOpHash: txHash,
+                to: spender,
+                display: 'Approve $amtStr $token',
+                ts: ts,
+                status: ActivityStatus.pending,
+                chainId: chainId,
+                opKind: 'erc20',
+                tokenSymbol: token,
+                tokenAddress: tokenAddr,
+                txHash: txHash,
+              ));
       if (mounted) Navigator.of(context).pop();
     } catch (e) {
       debugPrint('approve error: $e');
@@ -199,9 +203,10 @@ class _SendTokenSheetState extends State<SendTokenSheet> {
     final tokens = registry?.raw['tokens'] as List? ?? [];
     final theme = Theme.of(context);
     final permitDisabled = !(registry?.feature(selected, 'erc2612') ?? false);
-    final permit2Disabled =
-        registry?.permit2Address(widget.cfg['chainId'] as int) == null ||
-            !(registry?.feature(selected, 'permit2') ?? false);
+    final chainId = parseChainId(widget.cfg['chainId']);
+    final permit2Disabled = chainId == null ||
+        registry?.permit2Address(chainId) == null ||
+        !(registry?.feature(selected, 'permit2') ?? false);
     return Scaffold(
       appBar: AppBar(title: const Text('Send Token')),
       body: registry == null

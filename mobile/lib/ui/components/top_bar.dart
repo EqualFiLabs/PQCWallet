@@ -70,23 +70,25 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
       titleSpacing: 0,
       title: Row(
         children: [
-          Tooltip(
-            message: 'Open wallet menu',
-            child: InkWell(
-              onTap: onOpenMenu,
-              borderRadius: BorderRadius.circular(24),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 6,
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.account_balance_wallet_outlined),
-                    const SizedBox(width: 6),
-                    Flexible(child: _buildTitleContent(context)),
-                  ],
+          Expanded(
+            child: Tooltip(
+              message: 'Open wallet menu',
+              child: InkWell(
+                onTap: onOpenMenu,
+                borderRadius: BorderRadius.circular(24),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 6,
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Icon(Icons.account_balance_wallet_outlined),
+                      const SizedBox(width: 6),
+                      Expanded(child: _buildTitleContent(context)),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -102,9 +104,15 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
               ),
             ),
           if (status != null && status != TopBarStatus.ready)
-            Padding(
-              padding: const EdgeInsets.only(left: 12),
-              child: _StatusChip(status: status!),
+            Flexible(
+              child: Padding(
+                padding: const EdgeInsets.only(left: 12),
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerRight,
+                  child: _StatusChip(status: status!),
+                ),
+              ),
             ),
         ],
       ),

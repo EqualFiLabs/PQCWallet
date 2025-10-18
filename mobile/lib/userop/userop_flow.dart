@@ -16,6 +16,7 @@ import '../userop/userop_signer.dart';
 import '../models/token.dart';
 import '../services/erc20.dart';
 import '../pqc/attest.dart';
+import '../utils/config.dart';
 
 class UserOpFlow {
   final RpcClient rpc;
@@ -40,7 +41,7 @@ class UserOpFlow {
     required void Function(String) log,
     required Future<FeeState?> Function(FeeState) selectFees,
   }) async {
-    final chainId = cfg['chainId'] as int;
+    final chainId = requireChainId(cfg);
     final wallet = EthereumAddress.fromHex(cfg['walletAddress']);
     final entryPoint = EthereumAddress.fromHex(cfg['entryPoint']);
 
@@ -259,7 +260,7 @@ class UserOpFlow {
     required void Function(String) log,
     required Future<FeeState?> Function(FeeState) selectFees,
   }) async {
-    final chainId = cfg['chainId'] as int;
+    final chainId = requireChainId(cfg);
     final wallet = EthereumAddress.fromHex(cfg['walletAddress']);
     final entryPoint = EthereumAddress.fromHex(cfg['entryPoint']);
 
@@ -481,8 +482,8 @@ class UserOpFlow {
   }) async {
     final walletHex = cfg['walletAddress'] as String?;
     final entryHex = cfg['entryPoint'] as String?;
-    final chainIdVal = cfg['chainId'];
-    if (walletHex == null || entryHex == null || chainIdVal == null) {
+    final chainIdInt = parseChainId(cfg['chainId']);
+    if (walletHex == null || entryHex == null || chainIdInt == null) {
       log('Aggregator path disabled: missing config');
       return;
     }
@@ -494,7 +495,7 @@ class UserOpFlow {
       userOpHash: userOpHash,
       wallet: walletHex,
       entryPoint: entryHex,
-      chainId: BigInt.from(chainIdVal as int),
+      chainId: BigInt.from(chainIdInt),
       pqcSigDigest: pqcSigDigest,
       currentPkCommit: currentCommit,
       confirmNextCommit: confirmCommit,

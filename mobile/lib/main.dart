@@ -32,10 +32,13 @@ import 'ui/send_token_sheet.dart';
 import 'ui/wallet_setup.dart';
 import 'ui/navigation_placeholder_screen.dart';
 import 'ui/overview_tab_placeholder.dart';
+import 'ui/components/bottom_nav_scaffold.dart';
 import 'ui/components/neon_card.dart';
 import 'ui/components/top_bar.dart';
 import 'walletconnect/walletconnect.dart';
 import 'utils/address.dart';
+import 'utils/amounts.dart';
+import 'utils/config.dart';
 import 'services/secure_storage.dart';
 
 void main() => runApp(const PQCApp());
@@ -1146,40 +1149,62 @@ class _PQCAppState extends State<PQCApp> {
     if (customRpc != null && customRpc.isNotEmpty) {
       effectiveCfg['rpcUrl'] = customRpc;
     }
-    switch (_selectedNavIndex) {
-      case 0:
-        return const OverviewTabPlaceholder();
-      case 1:
-        if (_keys == null) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        final rpcKey = (effectiveCfg['rpcUrl'] as String?) ?? 'rpc-unknown';
-        return OverviewScreen(
-          key: ValueKey<String>(rpcKey),
-          cfg: effectiveCfg,
-          keys: _keys!,
-          settings: _settings,
-          selectedAccount: _selectedAccount,
-          setStatus: (s) => setState(() => _status = s),
-          authenticate: _authenticateForAction,
-        );
-      case 2:
-        return const NavigationPlaceholderScreen(
+
+    final navItems = <NavItem>[
+      NavItem(
+        icon: Icons.space_dashboard_outlined,
+        label: 'Overview',
+        builder: (context) => const OverviewTabPlaceholder(),
+      ),
+      NavItem(
+        icon: Icons.account_balance_wallet_outlined,
+        label: 'Wallet',
+        builder: (context) {
+          if (_keys == null) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          final rpcKey = (effectiveCfg['rpcUrl'] as String?) ?? 'rpc-unknown';
+          return OverviewScreen(
+            key: ValueKey<String>(rpcKey),
+            cfg: effectiveCfg,
+            keys: _keys!,
+            settings: _settings,
+            selectedAccount: _selectedAccount,
+            setStatus: (s) => setState(() => _status = s),
+            authenticate: _authenticateForAction,
+          );
+        },
+      ),
+      NavItem(
+        icon: Icons.qr_code_2,
+        label: 'Placeholder 3',
+        builder: (context) => const NavigationPlaceholderScreen(
           icon: Icons.qr_code_2,
           title: 'Placeholder 3',
           message: 'Future PQC tools will appear on this screen.',
-        );
-      case 3:
-        return _SecurityConfigView(cfg: effectiveCfg);
-      case 4:
-        return const NavigationPlaceholderScreen(
+        ),
+      ),
+      NavItem(
+        icon: Icons.shield_outlined,
+        label: 'Security',
+        builder: (context) => _SecurityConfigView(cfg: effectiveCfg),
+      ),
+      NavItem(
+        icon: Icons.upcoming_outlined,
+        label: 'Placeholder 4',
+        builder: (context) => const NavigationPlaceholderScreen(
           icon: Icons.upcoming_outlined,
           title: 'Placeholder 4',
           message: 'More features are on the way. Thanks for your patience!',
-        );
-      default:
-        return const SizedBox.shrink();
-    }
+        ),
+      ),
+    ];
+
+    return BottomNavScaffold(
+      currentIndex: _selectedNavIndex,
+      onIndexChanged: (index) => setState(() => _selectedNavIndex = index),
+      navItems: navItems,
+    );
   }
 
   void _openWalletMenu() {
@@ -1283,33 +1308,6 @@ class _PQCAppState extends State<PQCApp> {
           showQrProgress: _pairing,
         ),
         body: _buildHomeBody(),
-        bottomNavigationBar: BottomNavigationBar(
-          currentIndex: _selectedNavIndex,
-          onTap: (index) => setState(() => _selectedNavIndex = index),
-          type: BottomNavigationBarType.fixed,
-          items: const [
-            BottomNavigationBarItem(
-              icon: Icon(Icons.space_dashboard_outlined),
-              label: 'Overview',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.account_balance_wallet_outlined),
-              label: 'Wallet',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.qr_code_2),
-              label: 'Placeholder 3',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.shield_outlined),
-              label: 'Security',
-            ),
-            BottomNavigationBarItem(
-              icon: Icon(Icons.upcoming_outlined),
-              label: 'Placeholder 4',
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -2032,11 +2030,11 @@ class _OverviewScreenState extends State<OverviewScreen> {
     final amtStr = amountCtl.text.trim();
     try {
       widget.setStatus('Signing raw transaction...');
-      final amountWei = EtherAmount.fromBase10String(
-        EtherUnit.ether,
+      final amountWei = parseDecimalAmount(
         amtStr,
-      ).getInWei;
-      final chainId = widget.cfg['chainId'] as int;
+        decimals: 18,
+      );
+      final chainId = requireChainId(widget.cfg);
       final txHash = await eoaTx.sendEth(
         keys: widget.keys,
         to: to,
@@ -2087,10 +2085,11 @@ class _OverviewScreenState extends State<OverviewScreen> {
       final wallet = EthereumAddress.fromHex(walletHex);
       final to = EthereumAddress.fromHex(recipientCtl.text.trim());
       final amtStr = amountCtl.text.trim();
-      final amountWei = EtherAmount.fromBase10String(
-        EtherUnit.ether,
+      final amountWei = parseDecimalAmount(
         amtStr,
-      ).getInWei;
+        decimals: 18,
+      );
+      final chainId = requireChainId(widget.cfg);
 
       final flow = UserOpFlow(
         rpc: rpc,
@@ -2119,7 +2118,7 @@ class _OverviewScreenState extends State<OverviewScreen> {
               display: '$amtStr ETH',
               ts: DateTime.now().millisecondsSinceEpoch ~/ 1000,
               status: ActivityStatus.sent,
-              chainId: widget.cfg['chainId'],
+              chainId: chainId,
               opKind: 'eth',
             ),
       );
@@ -2130,7 +2129,7 @@ class _OverviewScreenState extends State<OverviewScreen> {
         await Future.delayed(const Duration(seconds: 2));
         final r = await bundler.getUserOperationReceipt(uoh);
         if (r != null) {
-          await pendingStore.clear(widget.cfg['chainId'], wallet.hex);
+          await pendingStore.clear(chainId, wallet.hex);
           widget.setStatus(
             'Inclusion tx: ${r['receipt']['transactionHash']} ✅',
           );
@@ -2152,7 +2151,11 @@ class _OverviewScreenState extends State<OverviewScreen> {
       return;
     }
     final wallet = EthereumAddress.fromHex(walletHex);
-    final chainId = widget.cfg['chainId'];
+    final chainId = parseChainId(widget.cfg['chainId']);
+    if (chainId == null) {
+      widget.setStatus('Config missing chainId; unable to read pending ops.');
+      return;
+    }
     final pending = await pendingStore.load(chainId, wallet.hex);
     widget.setStatus(
       pending == null
@@ -2170,7 +2173,11 @@ class _OverviewScreenState extends State<OverviewScreen> {
       return;
     }
     final wallet = EthereumAddress.fromHex(walletHex);
-    final chainId = widget.cfg['chainId'];
+    final chainId = parseChainId(widget.cfg['chainId']);
+    if (chainId == null) {
+      widget.setStatus('Config missing chainId; unable to clear pending ops.');
+      return;
+    }
     await pendingStore.clear(chainId, wallet.hex);
     widget.setStatus('pendingIndex cleared (canceled by user).');
   }

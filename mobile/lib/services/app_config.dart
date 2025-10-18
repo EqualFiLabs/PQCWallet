@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import '../utils/config.dart';
+
 /// Normalizes/massages the runtime config loaded from assets so the rest of
 /// the app can rely on stable keys.
 ///
@@ -17,11 +19,10 @@ Map<String, dynamic> normalizeAppConfig(Map<String, dynamic> raw) {
     cfg['entryPoint'] = cfg['entryPointAddr'];
   }
 
-  // Coerce chainId to int if it came as string.
-  final chainId = cfg['chainId'];
-  if (chainId is String) {
-    final parsed = int.tryParse(chainId);
-    if (parsed != null) cfg['chainId'] = parsed;
+  // Coerce chainId into an int regardless of how it was provided.
+  final parsedChainId = parseChainId(cfg['chainId'] ?? cfg['chain']);
+  if (parsedChainId != null) {
+    cfg['chainId'] = parsedChainId;
   }
 
   // Optional keys — make them present so UI can just render.

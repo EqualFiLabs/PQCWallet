@@ -83,7 +83,7 @@ class EOATransactions {
       from: from,
       to: w3.EthereumAddress.fromHex(to),
       value: value != null ? w3.EtherAmount.inWei(value) : null,
-      data: data,
+      data: data ?? Uint8List(0),
       maxGas: gasLimit.toInt(),
       nonce: nonce,
       maxFeePerGas: w3.EtherAmount.inWei(maxFee),
@@ -92,7 +92,8 @@ class EOATransactions {
 
     final signer = w3.EthPrivateKey(keys.ecdsa.privateKey);
     final signed = w3.signTransactionRaw(tx, signer, chainId: chainId);
-    final payload = tx.isEIP1559 ? w3.prependTransactionType(0x02, signed) : signed;
+    final payload =
+        tx.isEIP1559 ? w3.prependTransactionType(0x02, signed) : signed;
     final raw = '0x${w3crypto.bytesToHex(payload, include0x: false)}';
     final result = await rpc.call('eth_sendRawTransaction', [raw]);
     return result.toString();
