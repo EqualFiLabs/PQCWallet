@@ -9,12 +9,16 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+  package_info_plus: ^8.0.0
   http: ^1.2.1
   web3dart: ^2.7.3
+  reown_walletkit: ^1.3.4
   bip39: ^1.0.6
   bip32: ^2.0.0
   crypto: ^3.0.3
   flutter_secure_storage: ^9.0.0
+  qr_bar_code_scanner_dialog:
+    path: packages/qr_bar_code_scanner_dialog
   local_auth: ^2.3.0
   collection: ^1.18.0
   shared_preferences: ^2.2.2
@@ -23,9 +27,13 @@ dev_dependencies:
   flutter_test:
     sdk: flutter
   lints: ^3.0.0
+  flutter_lints: ^3.0.0
+
+dependency_overrides:
+  qr_code_scanner:
+    path: packages/qr_code_scanner
 
 flutter:
   uses-material-design: true
   assets:
-    - assets/config.example.json
-    - assets/tokens.base.json
+    - assets/

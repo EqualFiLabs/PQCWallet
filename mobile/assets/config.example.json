@@ -6,6 +6,11 @@
   "walletAddress": "0xWALLET",
   "aggregator": "0x0000000000000000000000000000000000000000",
   "proverRegistry": "0x0000000000000000000000000000000000000000",
-  "forceOnChainVerify": true
+  "forceOnChainVerify": true,
+  "walletConnect": {
+    "projectId": "",
+    "relayUrl": "wss://relay.walletconnect.com",
+    "pushUrl": "https://wc-push.walletconnect.com"
+  }
 }
 

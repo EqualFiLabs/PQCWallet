@@ -3,7 +3,7 @@ import 'package:web3dart/contracts.dart';
 import 'package:web3dart/web3dart.dart' as w3;
 
 class Erc20 {
-  static final _fnTransfer = ContractFunction(
+  static const _fnTransfer = ContractFunction(
     'transfer',
     [
       FunctionParameter('to', AddressType()),
@@ -12,7 +12,7 @@ class Erc20 {
     outputs: [FunctionParameter('', BoolType())],
   );
 
-  static final _fnApprove = ContractFunction(
+  static const _fnApprove = ContractFunction(
     'approve',
     [
       FunctionParameter('spender', AddressType()),
@@ -21,7 +21,7 @@ class Erc20 {
     outputs: [FunctionParameter('', BoolType())],
   );
 
-  static final _fnPermit = ContractFunction(
+  static const _fnPermit = ContractFunction(
     'permit',
     [
       FunctionParameter('owner', AddressType()),
@@ -32,7 +32,7 @@ class Erc20 {
       FunctionParameter('r', FixedBytes(32)),
       FunctionParameter('s', FixedBytes(32)),
     ],
-    outputs: const [],
+    outputs: [],
   );
 
   static Uint8List encodeTransfer(String to, BigInt amount) =>

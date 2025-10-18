@@ -7,7 +7,7 @@ import '../crypto/wots.dart';
 import '../services/bundler_client.dart';
 import '../services/rpc.dart';
 import '../services/storage.dart';
-import '../services/biometric.dart';
+import '../services/ecdsa_key_service.dart';
 import '../services/entrypoint.dart';
 import '../state/fees.dart';
 import '../state/settings.dart';
@@ -21,8 +21,14 @@ class UserOpFlow {
   final RpcClient rpc;
   final BundlerClient bundler;
   final PendingIndexStore store;
+  final ECDSAKeyService ecdsaService;
 
-  UserOpFlow({required this.rpc, required this.bundler, required this.store});
+  UserOpFlow({
+    required this.rpc,
+    required this.bundler,
+    required this.store,
+    ECDSAKeyService? ecdsaService,
+  }) : ecdsaService = ecdsaService ?? const ECDSAKeyService();
 
   Future<String> sendEth({
     required Map<String, dynamic> cfg,
@@ -30,6 +36,7 @@ class UserOpFlow {
     required EthereumAddress to,
     required BigInt amountWei,
     required AppSettings settings,
+    required Future<bool> Function(String reason) ensureAuthorized,
     required void Function(String) log,
     required Future<FeeState?> Function(FeeState) selectFees,
   }) async {
@@ -131,16 +138,10 @@ class UserOpFlow {
     final userOpHash = await ep.getUserOpHash(op);
     final userOpHashHex = '0x${w3.bytesToHex(userOpHash, include0x: false)}';
 
-    final mustAuth = settings.requireBiometricForChain(chainId);
+    final mustAuth = settings.requireAuthForChain(chainId);
     if (mustAuth) {
-      final bio = BiometricService();
-      final can = await bio.canCheck();
-      if (!can) {
-        log('Biometric requested but unavailable. Aborting.');
-        throw Exception('biometric-unavailable');
-      }
-      final ok = await bio.authenticate(
-          reason: 'Authenticate to sign & send this transaction');
+      final ok = await ensureAuthorized(
+          'Authenticate to sign & send this transaction');
       if (!ok) {
         log('Authentication canceled/failed. Send aborted.');
         throw Exception('auth-failed');
@@ -176,22 +177,15 @@ class UserOpFlow {
       }
 
       // build new signature
-      final creds = EthPrivateKey(Uint8List.fromList(keys.ecdsaPriv));
-      final sigBytes = await creds.signToUint8List(userOpHash, chainId: null);
-      final eSig = w3.MsgSignature(
-        w3.bytesToInt(sigBytes.sublist(0, 32)),
-        w3.bytesToInt(sigBytes.sublist(32, 64)),
-        sigBytes[64],
-      );
+      final eSig = await ecdsaService.sign(userOpHash, keys.ecdsa);
 
       final index = nonceOnChain.toInt();
-      final seedI = hkdfIndex(Uint8List.fromList(keys.wotsMaster), index);
+      final seedI = hkdfIndex(keys.wotsMaster, index);
       final (sk, pk) = Wots.keygen(seedI);
       final wSig = Wots.sign(userOpHash, sk);
 
       final confirmCommit = nextCommitOnChain;
-      final nextNextSeed =
-          hkdfIndex(Uint8List.fromList(keys.wotsMaster), index + 2);
+      final nextNextSeed = hkdfIndex(keys.wotsMaster, index + 2);
       final (_, nextNextPk) = Wots.keygen(nextNextSeed);
       final proposeCommit = Wots.commitPk(nextNextPk);
 
@@ -261,6 +255,7 @@ class UserOpFlow {
     required bool wantErc2612,
     required bool wantPermit2,
     required AppSettings settings,
+    required Future<bool> Function(String reason) ensureAuthorized,
     required void Function(String) log,
     required Future<FeeState?> Function(FeeState) selectFees,
   }) async {
@@ -370,16 +365,10 @@ class UserOpFlow {
     final userOpHash = await ep.getUserOpHash(op);
     final userOpHashHex = '0x${w3.bytesToHex(userOpHash, include0x: false)}';
 
-    final mustAuth = settings.requireBiometricForChain(chainId);
+    final mustAuth = settings.requireAuthForChain(chainId);
     if (mustAuth) {
-      final bio = BiometricService();
-      final can = await bio.canCheck();
-      if (!can) {
-        log('Biometric requested but unavailable. Aborting.');
-        throw Exception('biometric-unavailable');
-      }
-      final ok = await bio.authenticate(
-          reason: 'Authenticate to sign & send this transaction');
+      final ok = await ensureAuthorized(
+          'Authenticate to sign & send this transaction');
       if (!ok) {
         log('Authentication canceled/failed. Send aborted.');
         throw Exception('auth-failed');
@@ -413,22 +402,15 @@ class UserOpFlow {
         decision = 'fresh';
       }
 
-      final creds = EthPrivateKey(Uint8List.fromList(keys.ecdsaPriv));
-      final sigBytes = await creds.signToUint8List(userOpHash, chainId: null);
-      final eSig = w3.MsgSignature(
-        w3.bytesToInt(sigBytes.sublist(0, 32)),
-        w3.bytesToInt(sigBytes.sublist(32, 64)),
-        sigBytes[64],
-      );
+      final eSig = await ecdsaService.sign(userOpHash, keys.ecdsa);
 
       final index = nonceOnChain.toInt();
-      final seedI = hkdfIndex(Uint8List.fromList(keys.wotsMaster), index);
+      final seedI = hkdfIndex(keys.wotsMaster, index);
       final (sk, pk) = Wots.keygen(seedI);
       final wSig = Wots.sign(userOpHash, sk);
 
       final confirmCommit = nextCommitOnChain;
-      final nextNextSeed =
-          hkdfIndex(Uint8List.fromList(keys.wotsMaster), index + 2);
+      final nextNextSeed = hkdfIndex(keys.wotsMaster, index + 2);
       final (_, nextNextPk) = Wots.keygen(nextNextSeed);
       final proposeCommit = Wots.commitPk(nextNextPk);
 
@@ -544,7 +526,7 @@ class Call {
 }
 
 Uint8List encodeExecuteBatch(List<Call> calls) {
-  final executeBatch = ContractFunction('executeBatch', [
+  const executeBatch = ContractFunction('executeBatch', [
     FunctionParameter(
         'calls',
         DynamicLengthArray(
