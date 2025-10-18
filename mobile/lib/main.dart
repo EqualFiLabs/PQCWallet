@@ -115,16 +115,23 @@ class _PQCAppState extends State<PQCApp> {
     var hasPin = await _pinService.hasPin();
     while (!hasPin) {
       final navContext = _navKey.currentContext;
-      if (!mounted || navContext == null) {
+      if (navContext == null || !navContext.mounted) {
         return false;
       }
+      final messenger = ScaffoldMessenger.maybeOf(navContext);
       final newPin = await showPinSetupDialog(navContext);
       if (newPin == null) {
         return false;
       }
+      if (!navContext.mounted) {
+        return false;
+      }
       await _pinService.setPin(newPin);
       hasPin = true;
-      ScaffoldMessenger.maybeOf(navContext)?.showSnackBar(
+      if (!navContext.mounted) {
+        return false;
+      }
+      messenger?.showSnackBar(
         const SnackBar(content: Text('PIN set successfully.')),
       );
     }
@@ -134,10 +141,14 @@ class _PQCAppState extends State<PQCApp> {
 
   Future<bool> _promptForPin(String reason) async {
     final navContext = _navKey.currentContext;
-    if (!mounted || navContext == null) {
+    if (navContext == null || !navContext.mounted) {
       return false;
     }
+    final messenger = ScaffoldMessenger.maybeOf(navContext);
     for (var attempt = 0; attempt < 5; attempt++) {
+      if (!navContext.mounted) {
+        return false;
+      }
       final entered = await showPinEntryDialog(
         navContext,
         title: 'Enter wallet PIN',
@@ -147,14 +158,19 @@ class _PQCAppState extends State<PQCApp> {
       if (entered == null) {
         return false;
       }
+      if (!navContext.mounted) {
+        return false;
+      }
       final ok = await _pinService.verify(entered);
       if (ok) {
         return true;
       }
     }
-    ScaffoldMessenger.maybeOf(navContext)?.showSnackBar(
-      const SnackBar(content: Text('Too many incorrect PIN attempts.')),
-    );
+    if (navContext.mounted) {
+      messenger?.showSnackBar(
+        const SnackBar(content: Text('Too many incorrect PIN attempts.')),
+      );
+    }
     return false;
   }
 
@@ -530,23 +546,33 @@ class _PQCAppState extends State<PQCApp> {
                   sessionProperties: proposal.sessionProperties,
                 );
                 handled = true;
-                if (Navigator.of(context).canPop()) {
-                  Navigator.of(context).pop();
+                if (!context.mounted) {
+                  return;
                 }
-                ScaffoldMessenger.maybeOf(navContext)?.showSnackBar(
-                  SnackBar(
-                    content: Text(
-                      'WalletConnect session approved for ${proposal.proposer.metadata.name.isEmpty ? 'the dApp' : proposal.proposer.metadata.name}.',
+                final navigator = Navigator.of(context);
+                if (navigator.canPop()) {
+                  navigator.pop();
+                }
+                if (navContext.mounted) {
+                  ScaffoldMessenger.maybeOf(navContext)?.showSnackBar(
+                    SnackBar(
+                      content: Text(
+                        'WalletConnect session approved for ${proposal.proposer.metadata.name.isEmpty ? 'the dApp' : proposal.proposer.metadata.name}.',
+                      ),
                     ),
-                  ),
-                );
+                  );
+                }
                 await _registerWalletConnectAccounts();
               } catch (e) {
                 debugPrint('WalletConnect approve failed: $e');
-                ScaffoldMessenger.maybeOf(navContext)?.showSnackBar(
-                  SnackBar(content: Text('Failed to approve session: $e')),
-                );
-                setSheetState(() => busy = false);
+                if (navContext.mounted) {
+                  ScaffoldMessenger.maybeOf(navContext)?.showSnackBar(
+                    SnackBar(content: Text('Failed to approve session: $e')),
+                  );
+                }
+                if (context.mounted) {
+                  setSheetState(() => busy = false);
+                }
               }
             }
 
@@ -556,19 +582,29 @@ class _PQCAppState extends State<PQCApp> {
               try {
                 await _wcClient.reject(id: id);
                 handled = true;
-                if (Navigator.of(context).canPop()) {
-                  Navigator.of(context).pop();
+                if (!context.mounted) {
+                  return;
                 }
-                ScaffoldMessenger.maybeOf(navContext)?.showSnackBar(
-                  const SnackBar(
-                      content: Text('WalletConnect session rejected.')),
-                );
+                final navigator = Navigator.of(context);
+                if (navigator.canPop()) {
+                  navigator.pop();
+                }
+                if (navContext.mounted) {
+                  ScaffoldMessenger.maybeOf(navContext)?.showSnackBar(
+                    const SnackBar(
+                        content: Text('WalletConnect session rejected.')),
+                  );
+                }
               } catch (e) {
                 debugPrint('WalletConnect reject failed: $e');
-                ScaffoldMessenger.maybeOf(navContext)?.showSnackBar(
-                  SnackBar(content: Text('Failed to reject session: $e')),
-                );
-                setSheetState(() => busy = false);
+                if (navContext.mounted) {
+                  ScaffoldMessenger.maybeOf(navContext)?.showSnackBar(
+                    SnackBar(content: Text('Failed to reject session: $e')),
+                  );
+                }
+                if (context.mounted) {
+                  setSheetState(() => busy = false);
+                }
               }
             }
 
@@ -685,9 +721,10 @@ class _PQCAppState extends State<PQCApp> {
 
   Future<void> _presentRequest(SessionRequestEvent request) async {
     final navContext = _navKey.currentContext;
-    if (navContext == null) {
+    if (navContext == null || !navContext.mounted) {
       return;
     }
+    final messenger = ScaffoldMessenger.maybeOf(navContext);
     final session = _wcClient.sessions[request.topic];
     if (session == null) {
       final response = JsonRpcResponse<Object?>(
@@ -711,6 +748,9 @@ class _PQCAppState extends State<PQCApp> {
           session: session,
           signers: _wcSigners,
         );
+    if (!navContext.mounted) {
+      return;
+    }
 
     var handled = false;
     await showDialog<void>(
@@ -731,7 +771,9 @@ class _PQCAppState extends State<PQCApp> {
                   session: session,
                 );
                 if (!authed) {
-                  setDialogState(() => busy = false);
+                  if (context.mounted) {
+                    setDialogState(() => busy = false);
+                  }
                   return;
                 }
               }
@@ -746,22 +788,33 @@ class _PQCAppState extends State<PQCApp> {
                   response: response,
                 );
                 handled = true;
-                if (Navigator.of(dialogContext).canPop()) {
-                  Navigator.of(dialogContext).pop();
+                if (!dialogContext.mounted) {
+                  return;
                 }
-                ScaffoldMessenger.maybeOf(navContext)?.showSnackBar(
-                  SnackBar(
-                    content: Text('${request.method} approved for the dApp.'),
-                  ),
-                );
+                final navigator = Navigator.of(dialogContext);
+                if (navigator.canPop()) {
+                  navigator.pop();
+                }
+                if (navContext.mounted) {
+                  messenger?.showSnackBar(
+                    SnackBar(
+                      content:
+                          Text('${request.method} approved for the dApp.'),
+                    ),
+                  );
+                }
               } catch (e) {
                 debugPrint('WalletConnect request failed: $e');
-                ScaffoldMessenger.maybeOf(navContext)?.showSnackBar(
-                  SnackBar(
-                    content: Text('Failed to handle ${request.method}: $e'),
-                  ),
-                );
-                setDialogState(() => busy = false);
+                if (navContext.mounted) {
+                  messenger?.showSnackBar(
+                    SnackBar(
+                      content: Text('Failed to handle ${request.method}: $e'),
+                    ),
+                  );
+                }
+                if (context.mounted) {
+                  setDialogState(() => busy = false);
+                }
               }
             }
 
@@ -781,20 +834,31 @@ class _PQCAppState extends State<PQCApp> {
                   response: response,
                 );
                 handled = true;
-                if (Navigator.of(dialogContext).canPop()) {
-                  Navigator.of(dialogContext).pop();
+                if (!dialogContext.mounted) {
+                  return;
                 }
-                ScaffoldMessenger.maybeOf(navContext)?.showSnackBar(
-                  SnackBar(content: Text('${request.method} rejected.')),
-                );
+                final navigator = Navigator.of(dialogContext);
+                if (navigator.canPop()) {
+                  navigator.pop();
+                }
+                if (navContext.mounted) {
+                  messenger?.showSnackBar(
+                    SnackBar(content: Text('${request.method} rejected.')),
+                  );
+                }
               } catch (e) {
                 debugPrint('WalletConnect rejection failed: $e');
-                ScaffoldMessenger.maybeOf(navContext)?.showSnackBar(
-                  SnackBar(
-                    content: Text('Failed to reject ${request.method}: $e'),
-                  ),
-                );
-                setDialogState(() => busy = false);
+                if (navContext.mounted) {
+                  messenger?.showSnackBar(
+                    SnackBar(
+                      content:
+                          Text('Failed to reject ${request.method}: $e'),
+                    ),
+                  );
+                }
+                if (context.mounted) {
+                  setDialogState(() => busy = false);
+                }
               }
             }
 
@@ -878,14 +942,15 @@ class _PQCAppState extends State<PQCApp> {
 
   Future<void> _promptWalletConnectPairing() async {
     final navContext = _navKey.currentContext;
-    if (navContext == null) {
+    if (navContext == null || !navContext.mounted) {
       return;
     }
+    final messenger = ScaffoldMessenger.maybeOf(navContext);
     if (!_wcClient.isAvailable) {
-      ScaffoldMessenger.maybeOf(navContext)?.showSnackBar(
+      messenger?.showSnackBar(
         const SnackBar(
-          content:
-              Text('WalletConnect is disabled. Add a project ID in settings.'),
+          content: Text(
+              'WalletConnect is disabled. Add a project ID in settings.'),
         ),
       );
       return;
@@ -895,6 +960,9 @@ class _PQCAppState extends State<PQCApp> {
       context: navContext,
       builder: (_) => _WalletConnectPairingDialog(parentContext: navContext),
     );
+    if (!navContext.mounted) {
+      return;
+    }
     if (uriText == null || uriText.isEmpty) {
       return;
     }
@@ -906,25 +974,33 @@ class _PQCAppState extends State<PQCApp> {
         throw const FormatException('Invalid WalletConnect URI');
       }
     } catch (_) {
-      ScaffoldMessenger.maybeOf(navContext)?.showSnackBar(
-        const SnackBar(content: Text('Provide a valid WalletConnect URI.')),
-      );
+      if (navContext.mounted) {
+        messenger?.showSnackBar(
+          const SnackBar(content: Text('Provide a valid WalletConnect URI.')),
+        );
+      }
       return;
     }
 
     setState(() => _pairing = true);
-    ScaffoldMessenger.maybeOf(navContext)?.showSnackBar(
-      const SnackBar(content: Text('Pairing with dApp...')),
-    );
+    if (navContext.mounted) {
+      messenger?.showSnackBar(
+        const SnackBar(content: Text('Pairing with dApp...')),
+      );
+    }
     try {
       await _wcClient.pair(uri);
-      ScaffoldMessenger.maybeOf(navContext)?.showSnackBar(
-        const SnackBar(content: Text('WalletConnect pairing started.')),
-      );
+      if (navContext.mounted) {
+        messenger?.showSnackBar(
+          const SnackBar(content: Text('WalletConnect pairing started.')),
+        );
+      }
     } catch (e) {
-      ScaffoldMessenger.maybeOf(navContext)?.showSnackBar(
-        SnackBar(content: Text('Failed to pair: $e')),
-      );
+      if (navContext.mounted) {
+        messenger?.showSnackBar(
+          SnackBar(content: Text('Failed to pair: $e')),
+        );
+      }
     } finally {
       if (mounted) {
         setState(() => _pairing = false);
@@ -1071,8 +1147,9 @@ class _PQCAppState extends State<PQCApp> {
     if (_keys == null) {
       return const Center(child: CircularProgressIndicator());
     }
+    final rpcKey = (effectiveCfg['rpcUrl'] as String?) ?? 'rpc-unknown';
     return _Body(
-      key: ValueKey<String>(effectiveCfg['rpcUrl'] as String),
+      key: ValueKey<String>(rpcKey),
       cfg: effectiveCfg,
       keys: _keys!,
       settings: _settings,
@@ -1254,21 +1331,40 @@ class WalletMenuDrawer extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 24, 16, 8),
+            Container(
+              padding: const EdgeInsets.fromLTRB(16, 24, 16, 16),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surface.withValues(alpha: 0.4),
+                border: Border(
+                  bottom: BorderSide(
+                    color: theme.colorScheme.primary.withValues(alpha: 0.4),
+                    width: 1,
+                  ),
+                ),
+              ),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Wallet Menu', style: theme.textTheme.titleLarge),
-                  const SizedBox(height: 8),
                   Text(
-                    'Select the active wallet to manage.',
-                    style: theme.textTheme.bodySmall,
+                    'Wallet Menu',
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  const Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      _WalletMenuNavIcon(icon: Icons.wallet_outlined),
+                      _WalletMenuNavIcon(icon: Icons.key_outlined),
+                      _WalletMenuNavIcon(icon: Icons.qr_code_2_outlined),
+                      _WalletMenuNavIcon(icon: Icons.settings_outlined),
+                    ],
                   ),
                 ],
               ),
             ),
-            const Divider(height: 1),
             Expanded(
               child: RadioGroup<WalletAccount>(
                 groupValue: selectedAccount,
@@ -1297,6 +1393,36 @@ class WalletMenuDrawer extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _WalletMenuNavIcon extends StatelessWidget {
+  const _WalletMenuNavIcon({required this.icon});
+
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final primary = theme.colorScheme.primary;
+    return Container(
+      width: 56,
+      height: 56,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: primary.withValues(alpha: 0.6), width: 1.4),
+        color: primary.withValues(alpha: 0.1),
+        boxShadow: [
+          BoxShadow(
+            color: primary.withValues(alpha: 0.18),
+            blurRadius: 16,
+            spreadRadius: 1,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Icon(icon, size: 26, color: primary),
     );
   }
 }
@@ -1365,6 +1491,15 @@ class _BodyState extends State<_Body> {
   final ECDSAKeyService _ecdsaService = const ECDSAKeyService();
   late final EOATransactions eoaTx = EOATransactions(rpc: rpc);
 
+  String? get _pqcWalletHex {
+    final raw = widget.cfg['walletAddress'] as String?;
+    if (raw == null) {
+      return null;
+    }
+    final trimmed = raw.trim();
+    return trimmed.isEmpty ? null : trimmed;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -1385,8 +1520,13 @@ class _BodyState extends State<_Body> {
     final theme = Theme.of(context);
     final isPqc = widget.selectedAccount == WalletAccount.pqcWallet;
     final accountLabel = isPqc ? 'PQC Wallet (4337)' : 'EOA (Classic)';
+    final pqcAddressRaw = _pqcWalletHex;
+    final isPqcConfigured =
+        pqcAddressRaw != null && pqcAddressRaw.isNotEmpty;
     final walletAddress = isPqc
-        ? widget.cfg['walletAddress'] as String
+        ? (isPqcConfigured
+            ? pqcAddressRaw
+            : 'Wallet address not configured')
         : widget.keys.eoaAddress.hexEip55;
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -1403,6 +1543,16 @@ class _BodyState extends State<_Body> {
             ],
           ),
         ),
+        if (isPqc && !isPqcConfigured) ...[
+          const SizedBox(height: 16),
+          _Card(
+            child: Text(
+              'PQC wallet address not configured. Update assets/config.json with '
+              '`walletAddress` to enable smart-account actions.',
+              style: theme.textTheme.bodyMedium,
+            ),
+          ),
+        ],
         const SizedBox(height: 16),
         TextField(
             controller: recipientCtl,
@@ -1424,7 +1574,8 @@ class _BodyState extends State<_Body> {
           children: [
             Expanded(
                 child: ElevatedButton(
-                    onPressed: isPqc ? _sendEth : _sendEthEoa,
+                    onPressed:
+                        isPqc ? (isPqcConfigured ? _sendEth : null) : _sendEthEoa,
                     child: Text(isPqc ? 'Send ETH (PQC)' : 'Send ETH (EOA)'))),
           ],
         ),
@@ -1433,7 +1584,8 @@ class _BodyState extends State<_Body> {
           children: [
             Expanded(
                 child: ElevatedButton(
-                    onPressed: _openTokenSheet,
+                    onPressed:
+                        isPqc && isPqcConfigured ? _openTokenSheet : null,
                     child: const Text('Token actions'))),
           ],
         ),
@@ -1442,12 +1594,12 @@ class _BodyState extends State<_Body> {
           children: [
             Expanded(
                 child: ElevatedButton(
-                    onPressed: isPqc ? _showPending : null,
+                    onPressed: isPqc && isPqcConfigured ? _showPending : null,
                     child: const Text('Show Pending'))),
             const SizedBox(width: 8),
             Expanded(
                 child: ElevatedButton(
-                    onPressed: isPqc ? _clearPending : null,
+                    onPressed: isPqc && isPqcConfigured ? _clearPending : null,
                     child: const Text('Clear Pending'))),
           ],
         ),
@@ -1456,6 +1608,12 @@ class _BodyState extends State<_Body> {
   }
 
   Future<void> _openTokenSheet() async {
+    if (_pqcWalletHex == null) {
+      widget.setStatus(
+        'Configure `walletAddress` in assets/config.json before using token actions.',
+      );
+      return;
+    }
     await showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -1522,9 +1680,16 @@ class _BodyState extends State<_Body> {
           'Switch to the PQC Wallet to send smart-account transactions.');
       return;
     }
+    final walletHex = _pqcWalletHex;
+    if (walletHex == null) {
+      widget.setStatus(
+        'Configure `walletAddress` in assets/config.json before sending from the PQC wallet.',
+      );
+      return;
+    }
     try {
       widget.setStatus('Reading wallet state...');
-      final wallet = EthereumAddress.fromHex(widget.cfg['walletAddress']);
+      final wallet = EthereumAddress.fromHex(walletHex);
       final to = EthereumAddress.fromHex(recipientCtl.text.trim());
       final amtStr = amountCtl.text.trim();
       final amountWei =
@@ -1579,7 +1744,14 @@ class _BodyState extends State<_Body> {
   }
 
   Future<void> _showPending() async {
-    final wallet = EthereumAddress.fromHex(widget.cfg['walletAddress']);
+    final walletHex = _pqcWalletHex;
+    if (walletHex == null) {
+      widget.setStatus(
+        'Configure `walletAddress` in assets/config.json before checking pending operations.',
+      );
+      return;
+    }
+    final wallet = EthereumAddress.fromHex(walletHex);
     final chainId = widget.cfg['chainId'];
     final pending = await pendingStore.load(chainId, wallet.hex);
     widget.setStatus(pending == null
@@ -1588,7 +1760,14 @@ class _BodyState extends State<_Body> {
   }
 
   Future<void> _clearPending() async {
-    final wallet = EthereumAddress.fromHex(widget.cfg['walletAddress']);
+    final walletHex = _pqcWalletHex;
+    if (walletHex == null) {
+      widget.setStatus(
+        'Configure `walletAddress` in assets/config.json before clearing pending operations.',
+      );
+      return;
+    }
+    final wallet = EthereumAddress.fromHex(walletHex);
     final chainId = widget.cfg['chainId'];
     await pendingStore.clear(chainId, wallet.hex);
     widget.setStatus('pendingIndex cleared (canceled by user).');
@@ -1647,9 +1826,11 @@ class _WalletConnectPairingDialogState
         ),
       );
     } catch (e) {
-      ScaffoldMessenger.maybeOf(widget.parentContext)?.showSnackBar(
-        SnackBar(content: Text('QR scan failed: $e')),
-      );
+      if (widget.parentContext.mounted) {
+        ScaffoldMessenger.maybeOf(widget.parentContext)?.showSnackBar(
+          SnackBar(content: Text('QR scan failed: $e')),
+        );
+      }
     }
   }
 

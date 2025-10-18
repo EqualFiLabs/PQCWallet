@@ -18,19 +18,19 @@ class MockRpc extends RpcClient {
         case 0:
           return '0x1';
         case 1:
-          return '0x' + '00' * 32;
+          return '0x${'00' * 32}';
         case 2:
-          return '0x' + '22' * 32;
+          return '0x${'22' * 32}';
         case 3:
-          return '0x' + '11' * 32;
+          return '0x${'11' * 32}';
         case 4:
           return '0x1';
         case 5:
-          return '0x' + '00' * 32;
+          return '0x${'00' * 32}';
         case 6:
-          return '0x' + '22' * 32;
+          return '0x${'22' * 32}';
         default:
-          return '0x' + '11' * 32;
+          return '0x${'11' * 32}';
       }
     }
     if (method == 'eth_feeHistory') {

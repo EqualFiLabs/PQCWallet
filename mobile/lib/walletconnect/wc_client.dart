@@ -166,7 +166,7 @@ class WcClient extends ChangeNotifier {
     final kit = _requireKit();
     await kit.respondSessionRequest(topic: topic, response: response);
     final responseId = response.id;
-    if (responseId is int && _pendingRequests.remove(responseId) != null) {
+    if (_pendingRequests.remove(responseId) != null) {
       notifyListeners();
     }
   }

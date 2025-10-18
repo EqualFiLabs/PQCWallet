@@ -34,10 +34,10 @@ void main() {
 
       expect(sig.length, hybridLen);
 
-      final wotsSigStart = ecdsaLen;
-      final wotsPkStart = wotsSigStart + wotsSegLen;
-      final confirmStart = wotsPkStart + wotsSegLen;
-      final proposeStart = confirmStart + commitLen;
+      const wotsSigStart = ecdsaLen;
+      const wotsPkStart = wotsSigStart + wotsSegLen;
+      const confirmStart = wotsPkStart + wotsSegLen;
+      const proposeStart = confirmStart + commitLen;
 
       expect(sig.sublist(wotsSigStart, wotsPkStart), filled(wotsSegLen, 0xBB));
       expect(sig.sublist(wotsPkStart, confirmStart), filled(wotsSegLen, 0xCC));

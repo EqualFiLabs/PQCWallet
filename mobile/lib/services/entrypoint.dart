@@ -11,7 +11,7 @@ class EntryPointService {
   final RpcClient rpc;
   final w3.EthereumAddress entryPoint;
 
-  static final _fnGetUserOpHash = ContractFunction(
+  static const _fnGetUserOpHash = ContractFunction(
     'getUserOpHash',
     [
       FunctionParameter(

@@ -8,8 +8,8 @@ void main() {
 
   test('save/load/clear pending index record', () async {
     final store = PendingIndexStore(store: memory);
-    final chainId = 1;
-    final wallet = '0xabc';
+    const chainId = 1;
+    const wallet = '0xabc';
     final data = {'version': 1, 'foo': 'bar'};
     await store.save(chainId, wallet, data);
     final loaded = await store.load(chainId, wallet);

@@ -111,7 +111,7 @@ class WcRouter {
       case 'personal_sign':
         final params = _asList(event.params, method: event.method);
         if (params.length < 2) {
-          throw _WcRouterRejection('personal_sign requires two parameters');
+          throw const _WcRouterRejection('personal_sign requires two parameters');
         }
         final firstAddress = _maybeAddress(params[0]);
         final secondAddress = _maybeAddress(params[1]);
@@ -127,7 +127,7 @@ class WcRouter {
           from = secondAddress;
           payload = params[0];
         } else {
-          throw _WcRouterRejection('personal_sign missing address parameter');
+          throw const _WcRouterRejection('personal_sign missing address parameter');
         }
         _ensureAuthorized(from, approvedAddresses, signerAddress);
         return signer.personalSign(payload);
@@ -135,7 +135,7 @@ class WcRouter {
       case 'eth_sign':
         final params = _asList(event.params, method: event.method);
         if (params.length < 2) {
-          throw _WcRouterRejection('eth_sign requires an address and payload');
+          throw const _WcRouterRejection('eth_sign requires an address and payload');
         }
         final from = _requireAddress(params[0]);
         _ensureAuthorized(from, approvedAddresses, signerAddress);
@@ -266,7 +266,7 @@ class WcRouter {
   ) {
     final normalized = from?.toLowerCase();
     if (normalized == null) {
-      throw _WcRouterRejection('Missing from address');
+      throw const _WcRouterRejection('Missing from address');
     }
     if (!approved.contains(normalized)) {
       throw _WcRouterRejection('Address $normalized not approved for session');
@@ -295,10 +295,10 @@ class WcRouter {
           return decoded.cast<String, dynamic>();
         }
       } catch (_) {
-        throw _WcRouterRejection('Unable to parse typed data payload');
+        throw const _WcRouterRejection('Unable to parse typed data payload');
       }
     }
-    throw _WcRouterRejection('Invalid typed data payload');
+    throw const _WcRouterRejection('Invalid typed data payload');
   }
 
   int? _parseOptionalChainId(dynamic value) {

@@ -114,9 +114,9 @@ class _QRViewState extends State<QRView> {
   }
 
   Widget _getPlatformQrView() {
-    Widget _platformQrView;
+    Widget platformQrView;
     if (kIsWeb) {
-      _platformQrView = createWebQrView(
+      platformQrView = createWebQrView(
         onPlatformViewCreated: widget.onQRViewCreated,
         onPermissionSet: widget.onPermissionSet,
         cameraFacing: widget.cameraFacing,
@@ -124,7 +124,7 @@ class _QRViewState extends State<QRView> {
     } else {
       switch (defaultTargetPlatform) {
         case TargetPlatform.android:
-          _platformQrView = AndroidView(
+          platformQrView = AndroidView(
             viewType: 'net.touchcapture.qr.flutterqr/qrview',
             onPlatformViewCreated: _onPlatformViewCreated,
             creationParams:
@@ -133,7 +133,7 @@ class _QRViewState extends State<QRView> {
           );
           break;
         case TargetPlatform.iOS:
-          _platformQrView = UiKitView(
+          platformQrView = UiKitView(
             viewType: 'net.touchcapture.qr.flutterqr/qrview',
             onPlatformViewCreated: _onPlatformViewCreated,
             creationParams:
@@ -146,7 +146,7 @@ class _QRViewState extends State<QRView> {
               "Trying to use the default qrview implementation for $defaultTargetPlatform but there isn't a default one");
       }
     }
-    return _platformQrView;
+    return platformQrView;
   }
 
   void _onPlatformViewCreated(int id) {

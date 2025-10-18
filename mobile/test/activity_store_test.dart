@@ -8,7 +8,7 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     final store = ActivityStore();
     await store.load();
-    final item = ActivityItem(
+    const item = ActivityItem(
       userOpHash: '0xabc',
       to: '0x1',
       display: '1 ETH',

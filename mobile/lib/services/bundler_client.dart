@@ -26,8 +26,9 @@ class BundlerClient {
     final body = _rpc('eth_getUserOperationReceipt', [userOpHash]);
     final res = await http.post(Uri.parse(url), headers: _h(), body: body);
     final json = jsonDecode(res.body);
-    if (json['error'] != null)
+    if (json['error'] != null) {
       throw Exception('Bundler error: ${json['error']}');
+    }
     return json['result'] as Map<String, dynamic>?;
   }
 

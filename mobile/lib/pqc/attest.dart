@@ -57,7 +57,7 @@ String bytesToHex0x(Uint8List data) => w3.bytesToHex(data, include0x: true);
 
 /// Domain separator using name+version only.
 Uint8List domainSeparator() {
-  final encoder = const TupleType([
+  const encoder = TupleType([
     FixedBytes(32),
     FixedBytes(32),
     FixedBytes(32),
@@ -73,7 +73,7 @@ Uint8List domainSeparator() {
 
 /// Final EIP-712 digest (0x1901 || domainSeparator || structHash).
 Uint8List hashAttest(Attest a) {
-  final encoder = const TupleType([
+  const encoder = TupleType([
     FixedBytes(32),
     FixedBytes(32),
     AddressType(),

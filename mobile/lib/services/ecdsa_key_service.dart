@@ -86,7 +86,7 @@ class ECDSAKeyService {
     int? chainId,
   }) async {
     final creds = EthPrivateKey(keyPair.privateKey);
-    final sigBytes = await creds.signToUint8List(messageHash, chainId: chainId);
+    final sigBytes = creds.signToUint8List(messageHash, chainId: chainId);
     return w3crypto.MsgSignature(
       w3crypto.bytesToInt(sigBytes.sublist(0, 32)),
       w3crypto.bytesToInt(sigBytes.sublist(32, 64)),

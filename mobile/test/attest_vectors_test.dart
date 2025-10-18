@@ -3,7 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pqc_wallet/pqc/attest.dart';
 
-String repeatHex(String b, int count) => '0x' + List.filled(count, b).join();
+String repeatHex(String b, int count) => '0x${List.filled(count, b).join()}';
 Uint8List filled(int v) => Uint8List.fromList(List.filled(32, v));
 
 void main() {

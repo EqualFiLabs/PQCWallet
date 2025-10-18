@@ -64,21 +64,24 @@ class _SettingsScreenState extends State<SettingsScreen> {
     setState(() => _checkingBiometric = true);
     final bio = BiometricService();
     final can = await bio.canCheck();
+    if (!mounted) {
+      return;
+    }
     if (!can) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Biometric authentication is not available on this device.')));
-      }
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content:
+              Text('Biometric authentication is not available on this device.')));
       setState(() => _checkingBiometric = false);
       return;
     }
     final ok = await bio.authenticate(reason: 'Enable biometric authentication');
+    if (!mounted) {
+      return;
+    }
     setState(() => _checkingBiometric = false);
     if (!ok) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Biometric authentication canceled.')));
-      }
+      ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Biometric authentication canceled.')));
       return;
     }
     setState(() => _s = _s.copyWith(useBiometric: true));
@@ -86,9 +89,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<bool> _verifyCurrentPin() async {
+    final currentContext = context;
     for (var attempt = 0; attempt < 3; attempt++) {
+      if (!currentContext.mounted) {
+        return false;
+      }
       final entered = await showPinEntryDialog(
-        context,
+        currentContext,
         title: 'Enter current PIN',
         errorText:
             attempt == 0 ? null : 'Incorrect PIN. Please try again.',
@@ -96,27 +103,33 @@ class _SettingsScreenState extends State<SettingsScreen> {
       if (entered == null) {
         return false;
       }
+      if (!currentContext.mounted) {
+        return false;
+      }
       final ok = await widget.pinService.verify(entered);
       if (ok) return true;
     }
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+    if (currentContext.mounted) {
+      ScaffoldMessenger.of(currentContext).showSnackBar(const SnackBar(
           content: Text('Authentication failed after multiple attempts.')));
     }
     return false;
   }
 
   Future<void> _changePin() async {
+    final currentContext = context;
     final hasPin = await widget.pinService.hasPin();
     if (hasPin) {
       final ok = await _verifyCurrentPin();
       if (!ok) return;
     }
-    final newPin = await showPinSetupDialog(context);
+    if (!currentContext.mounted) return;
+    final newPin = await showPinSetupDialog(currentContext);
+    if (!currentContext.mounted) return;
     if (newPin == null) return;
     await widget.pinService.setPin(newPin);
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
+    if (currentContext.mounted) {
+      ScaffoldMessenger.of(currentContext).showSnackBar(
           const SnackBar(content: Text('PIN updated.')));
     }
   }

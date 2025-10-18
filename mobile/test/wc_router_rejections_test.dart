@@ -22,7 +22,7 @@ Future<SessionData> _buildSession(WcSigner signer, int chainId) async {
   final address = (await signer.address).hexEip55;
   final accountId = 'eip155:$chainId:${address.toLowerCase()}';
   const metadata = PairingMetadata(name: 'app', description: '');
-  final connection = ConnectionMetadata(publicKey: '0xabc', metadata: metadata);
+  const connection = ConnectionMetadata(publicKey: '0xabc', metadata: metadata);
   return SessionData(
     topic: 'topic',
     pairingTopic: 'pairing',

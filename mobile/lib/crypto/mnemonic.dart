@@ -21,8 +21,8 @@ class KeyMaterial {
   EthereumAddress get eoaAddress => ecdsa.address;
 }
 
-final _ecdsaKeyService = ECDSAKeyService();
-final _wotsSeedService = WOTSSeedService();
+const _ecdsaKeyService = ECDSAKeyService();
+const _wotsSeedService = WOTSSeedService();
 
 KeyMaterial deriveFromMnemonic(String? existing) {
   final derived = _ecdsaKeyService.deriveFromMnemonic(existing);

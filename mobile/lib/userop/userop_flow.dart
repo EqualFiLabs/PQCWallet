@@ -526,7 +526,7 @@ class Call {
 }
 
 Uint8List encodeExecuteBatch(List<Call> calls) {
-  final executeBatch = ContractFunction('executeBatch', [
+  const executeBatch = ContractFunction('executeBatch', [
     FunctionParameter(
         'calls',
         DynamicLengthArray(
