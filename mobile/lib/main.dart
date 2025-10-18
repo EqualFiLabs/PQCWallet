@@ -1,7 +1,7 @@
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'
-    show Clipboard, TextPosition, TextSelection, rootBundle;
+    show Clipboard, ClipboardData, TextPosition, TextSelection, rootBundle;
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:reown_walletkit/reown_walletkit.dart';
 import 'package:qr_bar_code_scanner_dialog/qr_bar_code_scanner_dialog.dart';
@@ -33,6 +33,7 @@ import 'ui/wallet_setup.dart';
 import 'ui/navigation_placeholder_screen.dart';
 import 'ui/overview_tab_placeholder.dart';
 import 'ui/components/neon_card.dart';
+import 'ui/components/top_bar.dart';
 import 'walletconnect/walletconnect.dart';
 import 'utils/address.dart';
 import 'services/secure_storage.dart';
@@ -1188,11 +1189,67 @@ class _PQCAppState extends State<PQCApp> {
     }
   }
 
+  TopBarStatus? _deriveTopBarStatus() {
+    final normalized = _status.trim();
+    if (normalized.isEmpty) {
+      return null;
+    }
+    final lower = normalized.toLowerCase();
+    if (lower == 'ready') {
+      return TopBarStatus.ready;
+    }
+    if (lower.contains('error') ||
+        lower.contains('fail') ||
+        lower.contains('required') ||
+        lower.contains('denied')) {
+      return TopBarStatus.error;
+    }
+    return TopBarStatus.syncing;
+  }
+
+  Future<void> _copyAddress(String addressText) async {
+    final context = _scaffoldKey.currentContext;
+    final messenger =
+        context != null ? ScaffoldMessenger.maybeOf(context) : null;
+    await Clipboard.setData(ClipboardData(text: addressText));
+    messenger?.showSnackBar(
+      const SnackBar(content: Text('Address copied to clipboard')),
+    );
+  }
+
+  String? _currentWalletAddressText() {
+    final selectedAddress = _selectedAccountAddress();
+    if (selectedAddress == null || selectedAddress.isEmpty) {
+      return null;
+    }
+    return truncateAddress(selectedAddress);
+  }
+
+  String? _selectedAccountAddress() {
+    if (_selectedAccount == WalletAccount.pqcWallet) {
+      final address = _cfg != null ? _cfg!['walletAddress'] as String? : null;
+      final trimmed = address?.trim();
+      if (trimmed == null || trimmed.isEmpty) {
+        return null;
+      }
+      return trimmed;
+    }
+    final eoaAddress = _keys?.eoaAddress.hexEip55;
+    final trimmed = eoaAddress?.trim();
+    if (trimmed == null || trimmed.isEmpty) {
+      return null;
+    }
+    return trimmed;
+  }
+
   @override
   Widget build(BuildContext context) {
     final String? pqcWalletAddress =
         _cfg != null ? _cfg!['walletAddress'] as String? : null;
     final String? eoaWalletAddress = _keys?.eoaAddress.hexEip55;
+    final String? truncatedAddress = _currentWalletAddressText();
+    final TopBarStatus? topBarStatus = _deriveTopBarStatus();
+    final String? statusText = _status.isNotEmpty ? _status : null;
     return MaterialApp(
       navigatorKey: _navKey,
       onGenerateRoute: _wcRouter.onGenerateRoute,
@@ -1210,83 +1267,22 @@ class _PQCAppState extends State<PQCApp> {
             }
           },
         ),
-        appBar: AppBar(
-          automaticallyImplyLeading: false,
-          centerTitle: false,
-          titleSpacing: 0,
-          title: Tooltip(
-            message: 'Open wallet menu',
-            child: InkWell(
-              onTap: _openWalletMenu,
-              borderRadius: BorderRadius.circular(24),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 6,
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(Icons.account_balance_wallet_outlined),
-                    const SizedBox(width: 6),
-                    Flexible(
-                      child: Text(
-                        _currentWalletTitle(),
-                        overflow: TextOverflow.ellipsis,
-                        softWrap: false,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-          actions: [
-            IconButton(
-              onPressed: _pairing || !_wcClient.isAvailable
-                  ? null
-                  : _promptWalletConnectPairing,
-              tooltip: 'Connect dApp (Reown)',
-              icon: Stack(
-                alignment: Alignment.center,
-                children: [
-                  const Icon(Icons.qr_code_scanner),
-                  if (_pairing)
-                    const SizedBox(
-                      width: 24,
-                      height: 24,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    ),
-                ],
-              ),
-            ),
-            IconButton(
-              onPressed: _openSettings,
-              icon: const Icon(Icons.settings),
-            ),
-          ],
+        appBar: TopBar(
+          title: _currentWalletTitle(),
+          status: topBarStatus,
+          statusText: statusText,
+          addressText: truncatedAddress,
+          onCopy: truncatedAddress != null
+              ? () => _copyAddress(truncatedAddress)
+              : null,
+          onQr: _pairing || !_wcClient.isAvailable
+              ? null
+              : _promptWalletConnectPairing,
+          onSettings: _openSettings,
+          onOpenMenu: _openWalletMenu,
+          showQrProgress: _pairing,
         ),
-        body: Column(
-          children: [
-            if (_status.isNotEmpty)
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 8,
-                ),
-                color: Theme.of(
-                  context,
-                ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.2),
-                child: Text(
-                  _status,
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.bodySmall,
-                ),
-              ),
-            Expanded(child: _buildHomeBody()),
-          ],
-        ),
+        body: _buildHomeBody(),
         bottomNavigationBar: BottomNavigationBar(
           currentIndex: _selectedNavIndex,
           onTap: (index) => setState(() => _selectedNavIndex = index),
@@ -1319,20 +1315,7 @@ class _PQCAppState extends State<PQCApp> {
   }
 
   String _currentWalletTitle() {
-    final account = _selectedAccount;
-    if (account == WalletAccount.pqcWallet) {
-      final address = _cfg != null ? _cfg!['walletAddress'] as String? : null;
-      return _formatAddressTitle(address);
-    }
-    final eoaAddress = _keys?.eoaAddress.hexEip55;
-    return _formatAddressTitle(eoaAddress);
-  }
-
-  String _formatAddressTitle(String? address) {
-    if (address == null || address.isEmpty) {
-      return 'Wallet';
-    }
-    return truncateAddress(address);
+    return _currentWalletAddressText() ?? 'Wallet';
   }
 }
 
@@ -1603,10 +1586,7 @@ class _NetworkLogo extends StatelessWidget {
       decoration: BoxDecoration(
         shape: BoxShape.circle,
         gradient: LinearGradient(
-          colors: [
-            option.color,
-            option.color.withValues(alpha: 0.7),
-          ],
+          colors: [option.color, option.color.withValues(alpha: 0.7)],
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
         ),
@@ -2377,16 +2357,27 @@ class _SecurityConfigView extends StatelessWidget {
       children: [
         Text('Security & Network', style: theme.textTheme.titleLarge),
         const SizedBox(height: 16),
-
         NeonCard(child: SelectableText('ChainID: ${_fmt(cfg['chainId'])}')),
         const SizedBox(height: 8),
-        NeonCard(child: SelectableText('EntryPoint: ${_fmt(cfg['entryPoint'])}')),
+        NeonCard(
+          child: SelectableText('EntryPoint: ${_fmt(cfg['entryPoint'])}'),
+        ),
         const SizedBox(height: 8),
-        NeonCard(child: SelectableText('Aggregator: ${_fmt(cfg['aggregator'])}')),
+        NeonCard(
+          child: SelectableText('Aggregator: ${_fmt(cfg['aggregator'])}'),
+        ),
         const SizedBox(height: 8),
-        NeonCard(child: SelectableText('ProverRegistry: ${_fmt(cfg['proverRegistry'])}')),
+        NeonCard(
+          child: SelectableText(
+            'ProverRegistry: ${_fmt(cfg['proverRegistry'])}',
+          ),
+        ),
         const SizedBox(height: 8),
-        NeonCard(child: SelectableText('ForceOnChainVerify: ${_fmt(cfg['forceOnChainVerify'])}')),
+        NeonCard(
+          child: SelectableText(
+            'ForceOnChainVerify: ${_fmt(cfg['forceOnChainVerify'])}',
+          ),
+        ),
         const SizedBox(height: 8),
         NeonCard(child: SelectableText('RPC: ${_fmt(cfg['rpcUrl'])}')),
         const SizedBox(height: 8),
