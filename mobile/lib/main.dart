@@ -29,6 +29,8 @@ import 'ui/activity_feed.dart';
 import 'services/eoa_transactions.dart';
 import 'ui/send_token_sheet.dart';
 import 'ui/wallet_setup.dart';
+import 'ui/navigation_placeholder_screen.dart';
+import 'ui/overview_tab_placeholder.dart';
 import 'walletconnect/walletconnect.dart';
 import 'utils/address.dart';
 import 'services/secure_storage.dart';
@@ -95,10 +97,7 @@ class _PQCAppState extends State<PQCApp> {
     super.initState();
     _theme = cyberpunkTheme();
     final sessionStore = WcSessionStore(storage: _secureStorage);
-    _wcClient = WcClient(
-      sessionStore: sessionStore,
-      navigatorKey: _navKey,
-    );
+    _wcClient = WcClient(sessionStore: sessionStore, navigatorKey: _navKey);
     _wcRouter = WcRouter(client: _wcClient);
     _wcClient.addListener(_handleWalletConnectChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) => _load());
@@ -593,7 +592,8 @@ class _PQCAppState extends State<PQCApp> {
                 if (navContext.mounted) {
                   ScaffoldMessenger.maybeOf(navContext)?.showSnackBar(
                     const SnackBar(
-                        content: Text('WalletConnect session rejected.')),
+                      content: Text('WalletConnect session rejected.'),
+                    ),
                   );
                 }
               } catch (e) {
@@ -659,16 +659,19 @@ class _PQCAppState extends State<PQCApp> {
         return;
       }
       final draft = drafts.putIfAbsent(key, _NamespaceDraft.new);
-      final supportedMethods = namespace.methods
-          .where((method) => _wcSupportedMethods.contains(method));
+      final supportedMethods = namespace.methods.where(
+        (method) => _wcSupportedMethods.contains(method),
+      );
       draft.methods.addAll(supportedMethods);
       draft.events.addAll(namespace.events);
     }
 
-    proposal.requiredNamespaces
-        .forEach((key, value) => addNamespace(key, value, optional: false));
-    proposal.optionalNamespaces
-        .forEach((key, value) => addNamespace(key, value, optional: true));
+    proposal.requiredNamespaces.forEach(
+      (key, value) => addNamespace(key, value, optional: false),
+    );
+    proposal.optionalNamespaces.forEach(
+      (key, value) => addNamespace(key, value, optional: true),
+    );
 
     return drafts.map((key, draft) {
       final accounts = draft.accounts.toList()
@@ -730,10 +733,7 @@ class _PQCAppState extends State<PQCApp> {
     if (session == null) {
       final response = JsonRpcResponse<Object?>(
         id: request.id,
-        error: const JsonRpcError(
-          code: 4001,
-          message: 'Session not found.',
-        ),
+        error: const JsonRpcError(code: 4001, message: 'Session not found.'),
       );
       try {
         await _wcClient.respond(topic: request.topic, response: response);
@@ -799,8 +799,7 @@ class _PQCAppState extends State<PQCApp> {
                 if (navContext.mounted) {
                   messenger?.showSnackBar(
                     SnackBar(
-                      content:
-                          Text('${request.method} approved for the dApp.'),
+                      content: Text('${request.method} approved for the dApp.'),
                     ),
                   );
                 }
@@ -852,8 +851,7 @@ class _PQCAppState extends State<PQCApp> {
                 if (navContext.mounted) {
                   messenger?.showSnackBar(
                     SnackBar(
-                      content:
-                          Text('Failed to reject ${request.method}: $e'),
+                      content: Text('Failed to reject ${request.method}: $e'),
                     ),
                   );
                 }
@@ -924,16 +922,19 @@ class _PQCAppState extends State<PQCApp> {
     final nav = _navKey.currentState;
     final navContext = _navKey.currentContext;
     if (nav == null || navContext == null) return;
-    await nav.push(MaterialPageRoute(
+    await nav.push(
+      MaterialPageRoute(
         builder: (_) => SettingsScreen(
-              settings: _settings,
-              store: _settingsStore,
-              pinService: _pinService,
-              walletConnectAvailable: _wcClient.isAvailable,
-              onOpenWalletConnect: _wcClient.isAvailable
-                  ? () => _wcClient.openSessionsScreen()
-                  : null,
-            )));
+          settings: _settings,
+          store: _settingsStore,
+          pinService: _pinService,
+          walletConnectAvailable: _wcClient.isAvailable,
+          onOpenWalletConnect: _wcClient.isAvailable
+              ? () => _wcClient.openSessionsScreen()
+              : null,
+        ),
+      ),
+    );
     final s = await _settingsStore.load();
     if (!mounted) return;
     setState(() => _settings = s);
@@ -951,7 +952,8 @@ class _PQCAppState extends State<PQCApp> {
       messenger?.showSnackBar(
         const SnackBar(
           content: Text(
-              'WalletConnect is disabled. Add a project ID in settings.'),
+            'WalletConnect is disabled. Add a project ID in settings.',
+          ),
         ),
       );
       return;
@@ -998,9 +1000,7 @@ class _PQCAppState extends State<PQCApp> {
       }
     } catch (e) {
       if (navContext.mounted) {
-        messenger?.showSnackBar(
-          SnackBar(content: Text('Failed to pair: $e')),
-        );
+        messenger?.showSnackBar(SnackBar(content: Text('Failed to pair: $e')));
       }
     } finally {
       if (mounted) {
@@ -1026,8 +1026,9 @@ class _PQCAppState extends State<PQCApp> {
       });
       return;
     }
-    final saved =
-        await _writeWalletSecretProtected(WalletSecret.mnemonic(mnemonic));
+    final saved = await _writeWalletSecretProtected(
+      WalletSecret.mnemonic(mnemonic),
+    );
     if (!mounted) return;
     if (!saved) {
       setState(() {
@@ -1074,7 +1075,8 @@ class _PQCAppState extends State<PQCApp> {
     try {
       final km = deriveFromPrivateKey(privateKey);
       final saved = await _writeWalletSecretProtected(
-          WalletSecret.privateKey(privateKey));
+        WalletSecret.privateKey(privateKey),
+      );
       if (!mounted) return;
       if (!saved) {
         setState(() {
@@ -1142,22 +1144,40 @@ class _PQCAppState extends State<PQCApp> {
     if (customRpc != null && customRpc.isNotEmpty) {
       effectiveCfg['rpcUrl'] = customRpc;
     }
-    if (_selectedNavIndex == 3) {
-      return _SecurityConfigView(cfg: effectiveCfg);
+    switch (_selectedNavIndex) {
+      case 0:
+        return const OverviewTabPlaceholder();
+      case 1:
+        if (_keys == null) {
+          return const Center(child: CircularProgressIndicator());
+        }
+        final rpcKey = (effectiveCfg['rpcUrl'] as String?) ?? 'rpc-unknown';
+        return OverviewScreen(
+          key: ValueKey<String>(rpcKey),
+          cfg: effectiveCfg,
+          keys: _keys!,
+          settings: _settings,
+          selectedAccount: _selectedAccount,
+          setStatus: (s) => setState(() => _status = s),
+          authenticate: _authenticateForAction,
+        );
+      case 2:
+        return const NavigationPlaceholderScreen(
+          icon: Icons.qr_code_2,
+          title: 'Placeholder 3',
+          message: 'Future PQC tools will appear on this screen.',
+        );
+      case 3:
+        return _SecurityConfigView(cfg: effectiveCfg);
+      case 4:
+        return const NavigationPlaceholderScreen(
+          icon: Icons.upcoming_outlined,
+          title: 'Placeholder 4',
+          message: 'More features are on the way. Thanks for your patience!',
+        );
+      default:
+        return const SizedBox.shrink();
     }
-    if (_keys == null) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    final rpcKey = (effectiveCfg['rpcUrl'] as String?) ?? 'rpc-unknown';
-    return _Body(
-      key: ValueKey<String>(rpcKey),
-      cfg: effectiveCfg,
-      keys: _keys!,
-      settings: _settings,
-      selectedAccount: _selectedAccount,
-      setStatus: (s) => setState(() => _status = s),
-      authenticate: _authenticateForAction,
-    );
   }
 
   void _openWalletMenu() {
@@ -1199,8 +1219,10 @@ class _PQCAppState extends State<PQCApp> {
               onTap: _openWalletMenu,
               borderRadius: BorderRadius.circular(24),
               child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 6,
+                ),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -1238,7 +1260,9 @@ class _PQCAppState extends State<PQCApp> {
               ),
             ),
             IconButton(
-                onPressed: _openSettings, icon: const Icon(Icons.settings))
+              onPressed: _openSettings,
+              icon: const Icon(Icons.settings),
+            ),
           ],
         ),
         body: Column(
@@ -1246,12 +1270,13 @@ class _PQCAppState extends State<PQCApp> {
             if (_status.isNotEmpty)
               Container(
                 width: double.infinity,
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                color: Theme.of(context)
-                    .colorScheme
-                    .surfaceContainerHighest
-                    .withValues(alpha: 0.2),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+                color: Theme.of(
+                  context,
+                ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.2),
                 child: Text(
                   _status,
                   textAlign: TextAlign.center,
@@ -1268,11 +1293,11 @@ class _PQCAppState extends State<PQCApp> {
           items: const [
             BottomNavigationBarItem(
               icon: Icon(Icons.space_dashboard_outlined),
-              label: 'Placeholder 1',
+              label: 'Overview',
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.account_balance_wallet_outlined),
-              label: 'Placeholder 2',
+              label: 'Wallet',
             ),
             BottomNavigationBarItem(
               icon: Icon(Icons.qr_code_2),
@@ -1283,8 +1308,8 @@ class _PQCAppState extends State<PQCApp> {
               label: 'Security',
             ),
             BottomNavigationBarItem(
-              icon: Icon(Icons.more_horiz),
-              label: 'Placeholder 5',
+              icon: Icon(Icons.upcoming_outlined),
+              label: 'Placeholder 4',
             ),
           ],
         ),
@@ -1465,10 +1490,7 @@ class _WalletDrawerLogo extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final gradient = LinearGradient(
-      colors: [
-        theme.colorScheme.primary,
-        theme.colorScheme.secondary,
-      ],
+      colors: [theme.colorScheme.primary, theme.colorScheme.secondary],
     );
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -1533,14 +1555,14 @@ class _WalletAccountTile extends StatelessWidget {
   }
 }
 
-class _Body extends StatefulWidget {
+class OverviewScreen extends StatefulWidget {
   final Map<String, dynamic> cfg;
   final KeyMaterial keys;
   final AppSettings settings;
   final void Function(String) setStatus;
   final WalletAccount selectedAccount;
   final Future<bool> Function(String reason) authenticate;
-  const _Body({
+  const OverviewScreen({
     super.key,
     required this.cfg,
     required this.keys,
@@ -1551,10 +1573,10 @@ class _Body extends StatefulWidget {
   });
 
   @override
-  State<_Body> createState() => _BodyState();
+  State<OverviewScreen> createState() => _OverviewScreenState();
 }
 
-class _BodyState extends State<_Body> {
+class _OverviewScreenState extends State<OverviewScreen> {
   late final rpc = RpcClient(widget.cfg['rpcUrl']);
   late final bundler = BundlerClient(widget.cfg['bundlerUrl']);
   final recipientCtl = TextEditingController();
@@ -1581,8 +1603,11 @@ class _BodyState extends State<_Body> {
   void initState() {
     super.initState();
     activityStore.load();
-    activityPoller =
-        ActivityPoller(store: activityStore, rpc: rpc, bundler: bundler);
+    activityPoller = ActivityPoller(
+      store: activityStore,
+      rpc: rpc,
+      bundler: bundler,
+    );
     activityPoller.start();
     _refreshBalance();
   }
@@ -1594,7 +1619,7 @@ class _BodyState extends State<_Body> {
   }
 
   @override
-  void didUpdateWidget(covariant _Body oldWidget) {
+  void didUpdateWidget(covariant OverviewScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     final oldWalletAddress = oldWidget.cfg['walletAddress'] as String?;
     final newWalletAddress = widget.cfg['walletAddress'] as String?;
@@ -1637,9 +1662,8 @@ class _BodyState extends State<_Body> {
       final result = await rpc.call('eth_getBalance', [address, 'latest']);
       final hex = result?.toString() ?? '0x0';
       final cleaned = hex.startsWith('0x') ? hex.substring(2) : hex;
-      final wei = cleaned.isEmpty
-          ? BigInt.zero
-          : BigInt.parse(cleaned, radix: 16);
+      final wei =
+          cleaned.isEmpty ? BigInt.zero : BigInt.parse(cleaned, radix: 16);
       final formatted = _formatEthBalance(wei);
       if (mounted && requestId == _balanceRequestId) {
         setState(() {
@@ -1683,12 +1707,9 @@ class _BodyState extends State<_Body> {
     final isPqc = widget.selectedAccount == WalletAccount.pqcWallet;
     final accountLabel = isPqc ? 'PQC Wallet (4337)' : 'EOA (Classic)';
     final pqcAddressRaw = _pqcWalletHex;
-    final isPqcConfigured =
-        pqcAddressRaw != null && pqcAddressRaw.isNotEmpty;
+    final isPqcConfigured = pqcAddressRaw != null && pqcAddressRaw.isNotEmpty;
     final walletAddress = isPqc
-        ? (isPqcConfigured
-            ? pqcAddressRaw
-            : 'Wallet address not configured')
+        ? (isPqcConfigured ? pqcAddressRaw : 'Wallet address not configured')
         : widget.keys.eoaAddress.hexEip55;
     return ListView(
       padding: const EdgeInsets.all(16),
@@ -1724,12 +1745,14 @@ class _BodyState extends State<_Body> {
         ],
         const SizedBox(height: 16),
         TextField(
-            controller: recipientCtl,
-            decoration: const InputDecoration(hintText: 'Recipient (0x...)')),
+          controller: recipientCtl,
+          decoration: const InputDecoration(hintText: 'Recipient (0x...)'),
+        ),
         const SizedBox(height: 8),
         TextField(
-            controller: amountCtl,
-            decoration: const InputDecoration(hintText: 'Amount ETH')),
+          controller: amountCtl,
+          decoration: const InputDecoration(hintText: 'Amount ETH'),
+        ),
         if (!isPqc)
           Padding(
             padding: const EdgeInsets.only(top: 8),
@@ -1742,34 +1765,41 @@ class _BodyState extends State<_Body> {
         Row(
           children: [
             Expanded(
-                child: ElevatedButton(
-                    onPressed:
-                        isPqc ? (isPqcConfigured ? _sendEth : null) : _sendEthEoa,
-                    child: Text(isPqc ? 'Send ETH (PQC)' : 'Send ETH (EOA)'))),
+              child: ElevatedButton(
+                onPressed:
+                    isPqc ? (isPqcConfigured ? _sendEth : null) : _sendEthEoa,
+                child: Text(isPqc ? 'Send ETH (PQC)' : 'Send ETH (EOA)'),
+              ),
+            ),
           ],
         ),
         const SizedBox(height: 8),
         Row(
           children: [
             Expanded(
-                child: ElevatedButton(
-                    onPressed:
-                        isPqc && isPqcConfigured ? _openTokenSheet : null,
-                    child: const Text('Token actions'))),
+              child: ElevatedButton(
+                onPressed: isPqc && isPqcConfigured ? _openTokenSheet : null,
+                child: const Text('Token actions'),
+              ),
+            ),
           ],
         ),
         const SizedBox(height: 8),
         Row(
           children: [
             Expanded(
-                child: ElevatedButton(
-                    onPressed: isPqc && isPqcConfigured ? _showPending : null,
-                    child: const Text('Show Pending'))),
+              child: ElevatedButton(
+                onPressed: isPqc && isPqcConfigured ? _showPending : null,
+                child: const Text('Show Pending'),
+              ),
+            ),
             const SizedBox(width: 8),
             Expanded(
-                child: ElevatedButton(
-                    onPressed: isPqc && isPqcConfigured ? _clearPending : null,
-                    child: const Text('Clear Pending'))),
+              child: ElevatedButton(
+                onPressed: isPqc && isPqcConfigured ? _clearPending : null,
+                child: const Text('Clear Pending'),
+              ),
+            ),
           ],
         ),
       ],
@@ -1812,8 +1842,10 @@ class _BodyState extends State<_Body> {
     final amtStr = amountCtl.text.trim();
     try {
       widget.setStatus('Signing raw transaction...');
-      final amountWei =
-          EtherAmount.fromBase10String(EtherUnit.ether, amtStr).getInWei;
+      final amountWei = EtherAmount.fromBase10String(
+        EtherUnit.ether,
+        amtStr,
+      ).getInWei;
       final chainId = widget.cfg['chainId'] as int;
       final txHash = await eoaTx.sendEth(
         keys: widget.keys,
@@ -1823,20 +1855,23 @@ class _BodyState extends State<_Body> {
       );
       final ts = DateTime.now().millisecondsSinceEpoch ~/ 1000;
       await activityStore.upsertByUserOpHash(
-          txHash,
-          (existing) =>
-              existing?.copyWith(
-                  status: ActivityStatus.pending, txHash: txHash) ??
-              ActivityItem(
-                userOpHash: txHash,
-                to: to,
-                display: '$amtStr ETH',
-                ts: ts,
-                status: ActivityStatus.pending,
-                chainId: chainId,
-                opKind: 'eth',
-                txHash: txHash,
-              ));
+        txHash,
+        (existing) =>
+            existing?.copyWith(
+              status: ActivityStatus.pending,
+              txHash: txHash,
+            ) ??
+            ActivityItem(
+              userOpHash: txHash,
+              to: to,
+              display: '$amtStr ETH',
+              ts: ts,
+              status: ActivityStatus.pending,
+              chainId: chainId,
+              opKind: 'eth',
+              txHash: txHash,
+            ),
+      );
       widget.setStatus('Sent. TxHash: $txHash');
     } catch (e) {
       widget.setStatus('Error: $e');
@@ -1846,7 +1881,8 @@ class _BodyState extends State<_Body> {
   Future<void> _sendEth() async {
     if (widget.selectedAccount != WalletAccount.pqcWallet) {
       widget.setStatus(
-          'Switch to the PQC Wallet to send smart-account transactions.');
+        'Switch to the PQC Wallet to send smart-account transactions.',
+      );
       return;
     }
     final walletHex = _pqcWalletHex;
@@ -1861,14 +1897,17 @@ class _BodyState extends State<_Body> {
       final wallet = EthereumAddress.fromHex(walletHex);
       final to = EthereumAddress.fromHex(recipientCtl.text.trim());
       final amtStr = amountCtl.text.trim();
-      final amountWei =
-          EtherAmount.fromBase10String(EtherUnit.ether, amtStr).getInWei;
+      final amountWei = EtherAmount.fromBase10String(
+        EtherUnit.ether,
+        amtStr,
+      ).getInWei;
 
       final flow = UserOpFlow(
-          rpc: rpc,
-          bundler: bundler,
-          store: pendingStore,
-          ecdsaService: _ecdsaService);
+        rpc: rpc,
+        bundler: bundler,
+        store: pendingStore,
+        ecdsaService: _ecdsaService,
+      );
       final uoh = await flow.sendEth(
         cfg: widget.cfg,
         keys: widget.keys,
@@ -1881,18 +1920,19 @@ class _BodyState extends State<_Body> {
       );
 
       await activityStore.upsertByUserOpHash(
-          uoh,
-          (existing) =>
-              existing?.copyWith(status: ActivityStatus.sent) ??
-              ActivityItem(
-                userOpHash: uoh,
-                to: to.hex,
-                display: '$amtStr ETH',
-                ts: DateTime.now().millisecondsSinceEpoch ~/ 1000,
-                status: ActivityStatus.sent,
-                chainId: widget.cfg['chainId'],
-                opKind: 'eth',
-              ));
+        uoh,
+        (existing) =>
+            existing?.copyWith(status: ActivityStatus.sent) ??
+            ActivityItem(
+              userOpHash: uoh,
+              to: to.hex,
+              display: '$amtStr ETH',
+              ts: DateTime.now().millisecondsSinceEpoch ~/ 1000,
+              status: ActivityStatus.sent,
+              chainId: widget.cfg['chainId'],
+              opKind: 'eth',
+            ),
+      );
 
       widget.setStatus('Sent. UserOpHash: $uoh (waiting for receipt...)');
 
@@ -1901,8 +1941,9 @@ class _BodyState extends State<_Body> {
         final r = await bundler.getUserOperationReceipt(uoh);
         if (r != null) {
           await pendingStore.clear(widget.cfg['chainId'], wallet.hex);
-          widget
-              .setStatus('Inclusion tx: ${r['receipt']['transactionHash']} ✅');
+          widget.setStatus(
+            'Inclusion tx: ${r['receipt']['transactionHash']} ✅',
+          );
           return;
         }
       }
@@ -1923,9 +1964,11 @@ class _BodyState extends State<_Body> {
     final wallet = EthereumAddress.fromHex(walletHex);
     final chainId = widget.cfg['chainId'];
     final pending = await pendingStore.load(chainId, wallet.hex);
-    widget.setStatus(pending == null
-        ? 'No pending record'
-        : const JsonEncoder.withIndent('  ').convert(pending));
+    widget.setStatus(
+      pending == null
+          ? 'No pending record'
+          : const JsonEncoder.withIndent('  ').convert(pending),
+    );
   }
 
   Future<void> _clearPending() async {
@@ -1944,10 +1987,7 @@ class _BodyState extends State<_Body> {
 }
 
 class _BalanceHeader extends StatelessWidget {
-  const _BalanceHeader({
-    required this.balanceText,
-    required this.loading,
-  });
+  const _BalanceHeader({required this.balanceText, required this.loading});
 
   final String balanceText;
   final bool loading;
@@ -2028,9 +2068,9 @@ class _WalletConnectPairingDialogState
       );
     } catch (e) {
       if (widget.parentContext.mounted) {
-        ScaffoldMessenger.maybeOf(widget.parentContext)?.showSnackBar(
-          SnackBar(content: Text('QR scan failed: $e')),
-        );
+        ScaffoldMessenger.maybeOf(
+          widget.parentContext,
+        )?.showSnackBar(SnackBar(content: Text('QR scan failed: $e')));
       }
     }
   }
@@ -2063,9 +2103,7 @@ class _WalletConnectPairingDialogState
     final theme = Theme.of(context);
     return AlertDialog(
       backgroundColor: theme.colorScheme.surface,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       title: const Text('Connect dApp (Reown)'),
       content: Column(
         mainAxisSize: MainAxisSize.min,
@@ -2134,11 +2172,14 @@ class _SecurityConfigView extends StatelessWidget {
         _Card(child: SelectableText('Aggregator: ${cfg['aggregator']}')),
         const SizedBox(height: 8),
         _Card(
-            child: SelectableText('ProverRegistry: ${cfg['proverRegistry']}')),
+          child: SelectableText('ProverRegistry: ${cfg['proverRegistry']}'),
+        ),
         const SizedBox(height: 8),
         _Card(
-            child: SelectableText(
-                'ForceOnChainVerify: ${cfg['forceOnChainVerify']}')),
+          child: SelectableText(
+            'ForceOnChainVerify: ${cfg['forceOnChainVerify']}',
+          ),
+        ),
       ],
     );
   }
@@ -2156,8 +2197,11 @@ class _LockedView extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.lock_outline,
-              size: 56, color: theme.colorScheme.secondary),
+          Icon(
+            Icons.lock_outline,
+            size: 56,
+            color: theme.colorScheme.secondary,
+          ),
           const SizedBox(height: 16),
           SizedBox(
             width: 280,
@@ -2182,8 +2226,9 @@ class _Card extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-          color: const Color(0x2211CDEF),
-          borderRadius: BorderRadius.circular(16)),
+        color: const Color(0x2211CDEF),
+        borderRadius: BorderRadius.circular(16),
+      ),
       padding: const EdgeInsets.all(12),
       child: child,
     );
