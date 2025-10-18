@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart'
     show Clipboard, TextPosition, TextSelection, rootBundle;
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:reown_walletkit/reown_walletkit.dart';
 import 'package:qr_bar_code_scanner_dialog/qr_bar_code_scanner_dialog.dart';
 import 'package:web3dart/crypto.dart' as w3;
@@ -1342,24 +1343,17 @@ class WalletMenuDrawer extends StatelessWidget {
                   ),
                 ),
               ),
-              child: Column(
+              child: const Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'Wallet Menu',
-                    style: theme.textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                  const SizedBox(height: 16),
                   const Wrap(
                     spacing: 8,
                     runSpacing: 8,
                     children: [
-                      _WalletMenuNavIcon(icon: Icons.wallet_outlined),
-                      _WalletMenuNavIcon(icon: Icons.key_outlined),
-                      _WalletMenuNavIcon(icon: Icons.qr_code_2_outlined),
-                      _WalletMenuNavIcon(icon: Icons.settings_outlined),
+                      const _WalletMenuNavIcon(icon: Icons.wallet_outlined),
+                      const _WalletMenuNavIcon(icon: Icons.key_outlined),
+                      const _WalletMenuNavIcon(icon: Icons.qr_code_2_outlined),
+                      const _WalletMenuNavIcon(icon: Icons.settings_outlined),
                     ],
                   ),
                 ],
@@ -1389,6 +1383,11 @@ class WalletMenuDrawer extends StatelessWidget {
                   ],
                 ),
               ),
+            ),
+            const SizedBox(height: 16),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 0, 16, 24),
+              child: _WalletDrawerFooter(),
             ),
           ],
         ),
@@ -1423,6 +1422,81 @@ class _WalletMenuNavIcon extends StatelessWidget {
         ],
       ),
       child: Icon(icon, size: 26, color: primary),
+    );
+  }
+}
+
+class _WalletDrawerFooter extends StatelessWidget {
+  const _WalletDrawerFooter();
+
+  static final Future<PackageInfo> _packageInfo = PackageInfo.fromPlatform();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return FutureBuilder<PackageInfo>(
+      future: _packageInfo,
+      builder: (context, snapshot) {
+        final version = snapshot.data?.version;
+        return Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            const _WalletDrawerLogo(),
+            if (version != null && version.isNotEmpty)
+              Text(
+                'v$version',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _WalletDrawerLogo extends StatelessWidget {
+  const _WalletDrawerLogo();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final gradient = LinearGradient(
+      colors: [
+        theme.colorScheme.primary,
+        theme.colorScheme.secondary,
+      ],
+    );
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 36,
+          height: 36,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            gradient: gradient,
+          ),
+          alignment: Alignment.center,
+          child: Text(
+            'EQ',
+            style: theme.textTheme.labelLarge?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: theme.colorScheme.onPrimary,
+            ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Text(
+          'EqualFi',
+          style: theme.textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
     );
   }
 }

@@ -1,5 +1,8 @@
 # AGENTS.md
 
+
+PLEASE INSTALL THE FLUTTER SDK VIA GIT SO YOU CAN PROPERLY TEST
+
 A predictable guide for coding agents working on the EqualFi Labs PQC Wallet repo.  
 This repo has two major components:
 
