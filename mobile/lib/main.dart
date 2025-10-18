@@ -1384,6 +1384,12 @@ class WalletMenuDrawer extends StatelessWidget {
                 ],
               ),
             ),
+            const SizedBox(height: 16),
+            const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 16),
+              child: _NetworkSwitch(),
+            ),
+            const SizedBox(height: 16),
             Expanded(
               child: RadioGroup<WalletAccount>(
                 groupValue: selectedAccount,
@@ -1416,6 +1422,209 @@ class WalletMenuDrawer extends StatelessWidget {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _NetworkSwitch extends StatelessWidget {
+  const _NetworkSwitch();
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final primary = theme.colorScheme.primary;
+    final surface = theme.colorScheme.surface.withValues(alpha: 0.45);
+    const selectedNetwork = 'Base';
+    const options = <_NetworkOption>[
+      _NetworkOption(
+        name: 'Ethereum',
+        abbreviation: 'ETH',
+        color: Color(0xFF627EEA),
+      ),
+      _NetworkOption(
+        name: 'Base',
+        abbreviation: 'BASE',
+        color: Color(0xFF0052FF),
+      ),
+      _NetworkOption(
+        name: 'Arbitrum',
+        abbreviation: 'ARB',
+        color: Color(0xFF28A0F0),
+      ),
+      _NetworkOption(
+        name: 'Optimism',
+        abbreviation: 'OP',
+        color: Color(0xFFFF0420),
+      ),
+    ];
+
+    return Container(
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(24),
+        border: Border.all(color: primary.withValues(alpha: 0.5), width: 1.4),
+        color: surface,
+        boxShadow: [
+          BoxShadow(
+            color: primary.withValues(alpha: 0.18),
+            blurRadius: 20,
+            offset: const Offset(0, 10),
+          ),
+        ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            'Network Switch',
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+              color: theme.colorScheme.onSurface,
+            ),
+          ),
+          const SizedBox(height: 12),
+          DropdownButtonHideUnderline(
+            child: Container(
+              decoration: BoxDecoration(
+                borderRadius: BorderRadius.circular(20),
+                border: Border.all(
+                  color: primary.withValues(alpha: 0.5),
+                  width: 1.3,
+                ),
+                color: theme.colorScheme.surface.withValues(alpha: 0.6),
+                boxShadow: [
+                  BoxShadow(
+                    color: primary.withValues(alpha: 0.12),
+                    blurRadius: 18,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
+              child: DropdownButton<String>(
+                value: selectedNetwork,
+                isExpanded: true,
+                borderRadius: BorderRadius.circular(20),
+                dropdownColor: theme.colorScheme.surface,
+                icon: Icon(
+                  Icons.keyboard_arrow_down_rounded,
+                  color: theme.colorScheme.onSurface,
+                ),
+                style: theme.textTheme.bodyLarge?.copyWith(
+                  color: theme.colorScheme.onSurface,
+                  fontWeight: FontWeight.w600,
+                ),
+                items: [
+                  for (final option in options)
+                    DropdownMenuItem<String>(
+                      value: option.name,
+                      child: _NetworkDropdownTile(option: option),
+                    ),
+                ],
+                selectedItemBuilder: (context) {
+                  return options
+                      .map<Widget>(
+                        (option) => Align(
+                          alignment: Alignment.centerLeft,
+                          child: _NetworkDropdownTile(option: option),
+                        ),
+                      )
+                      .toList();
+                },
+                onChanged: (_) {},
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Select a network to change chain ID and RPC.',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _NetworkOption {
+  const _NetworkOption({
+    required this.name,
+    required this.abbreviation,
+    required this.color,
+  });
+
+  final String name;
+  final String abbreviation;
+  final Color color;
+}
+
+class _NetworkDropdownTile extends StatelessWidget {
+  const _NetworkDropdownTile({required this.option});
+
+  final _NetworkOption option;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Row(
+      children: [
+        _NetworkLogo(option: option),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Text(
+            option.name,
+            style: theme.textTheme.bodyLarge?.copyWith(
+              fontWeight: FontWeight.w600,
+              color: theme.colorScheme.onSurface,
+            ),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _NetworkLogo extends StatelessWidget {
+  const _NetworkLogo({required this.option});
+
+  final _NetworkOption option;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 36,
+      height: 36,
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        gradient: LinearGradient(
+          colors: [
+            option.color,
+            option.color.withValues(alpha: 0.7),
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: option.color.withValues(alpha: 0.35),
+            blurRadius: 14,
+            offset: const Offset(0, 6),
+          ),
+        ],
+      ),
+      alignment: Alignment.center,
+      child: Text(
+        option.abbreviation,
+        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+            ),
+        textAlign: TextAlign.center,
       ),
     );
   }

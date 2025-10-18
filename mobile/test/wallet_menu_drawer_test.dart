@@ -29,7 +29,14 @@ void main() {
     scaffoldState.openDrawer();
     await tester.pumpAndSettle();
 
-    expect(find.text('Wallet Menu'), findsOneWidget);
+    expect(find.byIcon(Icons.wallet_outlined), findsOneWidget);
+    expect(find.byIcon(Icons.key_outlined), findsOneWidget);
+    expect(find.byIcon(Icons.qr_code_2_outlined), findsOneWidget);
+    expect(find.byIcon(Icons.settings_outlined), findsOneWidget);
+
+    expect(find.text('Network Switch'), findsOneWidget);
+    expect(find.text('Select a network to change chain ID and RPC.'), findsOneWidget);
+    expect(find.text('Base'), findsOneWidget);
     expect(find.text('PQC Wallet (4337)'), findsOneWidget);
     expect(find.text('EOA (Classic)'), findsOneWidget);
     expect(find.text(truncateAddress(pqcSample)), findsOneWidget);
