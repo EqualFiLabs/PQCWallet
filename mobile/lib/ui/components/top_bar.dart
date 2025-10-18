@@ -41,12 +41,6 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final List<Widget> actions = <Widget>[
-      if (addressText != null && addressText!.isNotEmpty)
-        IconButton(
-          tooltip: 'Copy address',
-          onPressed: onCopy,
-          icon: const Icon(Icons.copy),
-        ),
       IconButton(
         tooltip: 'Connect dApp (Reown)',
         onPressed: onQr,
@@ -97,7 +91,17 @@ class TopBar extends StatelessWidget implements PreferredSizeWidget {
               ),
             ),
           ),
-          if (status != null)
+          if (onCopy != null)
+            Padding(
+              padding: const EdgeInsets.only(left: 4),
+              child: IconButton(
+                tooltip:
+                    addressText != null ? 'Copy $addressText' : 'Copy address',
+                onPressed: onCopy,
+                icon: const Icon(Icons.copy),
+              ),
+            ),
+          if (status != null && status != TopBarStatus.ready)
             Padding(
               padding: const EdgeInsets.only(left: 12),
               child: _StatusChip(status: status!),
