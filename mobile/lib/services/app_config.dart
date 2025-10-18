@@ -1,0 +1,36 @@
+import 'dart:convert';
+
+/// Normalizes/massages the runtime config loaded from assets so the rest of
+/// the app can rely on stable keys.
+///
+/// Accepted aliases:
+/// - entryPointAddr -> entryPoint
+///
+/// Optional fields are defaulted to sensible null/false values rather than
+/// missing/undefined to keep UI simple.
+Map<String, dynamic> normalizeAppConfig(Map<String, dynamic> raw) {
+  // Copy to avoid mutating the caller's map.
+  final cfg = jsonDecode(jsonEncode(raw)) as Map<String, dynamic>;
+
+  // Aliases
+  if (cfg['entryPoint'] == null && cfg['entryPointAddr'] is String) {
+    cfg['entryPoint'] = cfg['entryPointAddr'];
+  }
+
+  // Coerce chainId to int if it came as string.
+  final chainId = cfg['chainId'];
+  if (chainId is String) {
+    final parsed = int.tryParse(chainId);
+    if (parsed != null) cfg['chainId'] = parsed;
+  }
+
+  // Optional keys — make them present so UI can just render.
+  cfg.putIfAbsent('aggregator', () => null);
+  cfg.putIfAbsent('proverRegistry', () => null);
+  cfg.putIfAbsent('forceOnChainVerify', () => null);
+  cfg.putIfAbsent('walletAddress', () => null);
+  cfg.putIfAbsent('rpcUrl', () => null);
+  cfg.putIfAbsent('bundlerUrl', () => null);
+
+  return cfg;
+}

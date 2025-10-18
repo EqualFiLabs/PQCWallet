@@ -10,6 +10,7 @@ import 'package:web3dart/crypto.dart' as w3;
 import 'theme/theme.dart';
 import 'services/rpc.dart';
 import 'services/bundler_client.dart';
+import 'services/app_config.dart';
 import 'crypto/mnemonic.dart';
 import 'services/storage.dart';
 import 'services/biometric.dart';
@@ -31,6 +32,7 @@ import 'ui/send_token_sheet.dart';
 import 'ui/wallet_setup.dart';
 import 'ui/navigation_placeholder_screen.dart';
 import 'ui/overview_tab_placeholder.dart';
+import 'ui/components/neon_card.dart';
 import 'walletconnect/walletconnect.dart';
 import 'utils/address.dart';
 import 'services/secure_storage.dart';
@@ -336,14 +338,13 @@ class _PQCAppState extends State<PQCApp> {
 
     for (final asset in candidates) {
       try {
-        final data = await rootBundle.loadString(asset);
-        final decoded = jsonDecode(data);
-        if (decoded is Map<String, dynamic>) {
-          if (asset != 'assets/config.example.json') {
-            debugPrint('Loaded configuration from $asset');
-          }
-          return decoded;
+        final jsonStr = await rootBundle.loadString(asset);
+        final parsed = jsonDecode(jsonStr) as Map<String, dynamic>;
+        final normalized = normalizeAppConfig(parsed);
+        if (asset != 'assets/config.example.json') {
+          debugPrint('Loaded configuration from $asset');
         }
+        return normalized;
       } on FlutterError {
         // Asset not found, try the next candidate.
       } on FormatException catch (e) {
@@ -2363,8 +2364,10 @@ class _WalletConnectPairingDialogState
 
 class _SecurityConfigView extends StatelessWidget {
   const _SecurityConfigView({required this.cfg});
-
   final Map<String, dynamic> cfg;
+
+  String _fmt(Object? v) =>
+      (v == null || (v is String && v.isEmpty)) ? 'Not set' : v.toString();
 
   @override
   Widget build(BuildContext context) {
@@ -2374,21 +2377,20 @@ class _SecurityConfigView extends StatelessWidget {
       children: [
         Text('Security & Network', style: theme.textTheme.titleLarge),
         const SizedBox(height: 16),
-        _Card(child: SelectableText('ChainID: ${cfg['chainId']}')),
+
+        NeonCard(child: SelectableText('ChainID: ${_fmt(cfg['chainId'])}')),
         const SizedBox(height: 8),
-        _Card(child: SelectableText('EntryPoint: ${cfg['entryPoint']}')),
+        NeonCard(child: SelectableText('EntryPoint: ${_fmt(cfg['entryPoint'])}')),
         const SizedBox(height: 8),
-        _Card(child: SelectableText('Aggregator: ${cfg['aggregator']}')),
+        NeonCard(child: SelectableText('Aggregator: ${_fmt(cfg['aggregator'])}')),
         const SizedBox(height: 8),
-        _Card(
-          child: SelectableText('ProverRegistry: ${cfg['proverRegistry']}'),
-        ),
+        NeonCard(child: SelectableText('ProverRegistry: ${_fmt(cfg['proverRegistry'])}')),
         const SizedBox(height: 8),
-        _Card(
-          child: SelectableText(
-            'ForceOnChainVerify: ${cfg['forceOnChainVerify']}',
-          ),
-        ),
+        NeonCard(child: SelectableText('ForceOnChainVerify: ${_fmt(cfg['forceOnChainVerify'])}')),
+        const SizedBox(height: 8),
+        NeonCard(child: SelectableText('RPC: ${_fmt(cfg['rpcUrl'])}')),
+        const SizedBox(height: 8),
+        NeonCard(child: SelectableText('Bundler: ${_fmt(cfg['bundlerUrl'])}')),
       ],
     );
   }
