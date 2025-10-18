@@ -1346,14 +1346,14 @@ class WalletMenuDrawer extends StatelessWidget {
               child: const Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Wrap(
+                  Wrap(
                     spacing: 8,
                     runSpacing: 8,
                     children: [
-                      const _WalletMenuNavIcon(icon: Icons.wallet_outlined),
-                      const _WalletMenuNavIcon(icon: Icons.key_outlined),
-                      const _WalletMenuNavIcon(icon: Icons.qr_code_2_outlined),
-                      const _WalletMenuNavIcon(icon: Icons.settings_outlined),
+                      _WalletMenuNavIcon(icon: Icons.wallet_outlined),
+                      _WalletMenuNavIcon(icon: Icons.key_outlined),
+                      _WalletMenuNavIcon(icon: Icons.qr_code_2_outlined),
+                      _WalletMenuNavIcon(icon: Icons.settings_outlined),
                     ],
                   ),
                 ],
@@ -1564,6 +1564,9 @@ class _BodyState extends State<_Body> {
   late final ActivityPoller activityPoller;
   final ECDSAKeyService _ecdsaService = const ECDSAKeyService();
   late final EOATransactions eoaTx = EOATransactions(rpc: rpc);
+  bool _loadingBalance = false;
+  String _balanceDisplay = '0.00';
+  int _balanceRequestId = 0;
 
   String? get _pqcWalletHex {
     final raw = widget.cfg['walletAddress'] as String?;
@@ -1581,12 +1584,97 @@ class _BodyState extends State<_Body> {
     activityPoller =
         ActivityPoller(store: activityStore, rpc: rpc, bundler: bundler);
     activityPoller.start();
+    _refreshBalance();
   }
 
   @override
   void dispose() {
     activityPoller.stop();
     super.dispose();
+  }
+
+  @override
+  void didUpdateWidget(covariant _Body oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final oldWalletAddress = oldWidget.cfg['walletAddress'] as String?;
+    final newWalletAddress = widget.cfg['walletAddress'] as String?;
+    if (oldWidget.selectedAccount != widget.selectedAccount ||
+        oldWalletAddress != newWalletAddress ||
+        oldWidget.keys.eoaAddress != widget.keys.eoaAddress) {
+      _refreshBalance();
+    }
+  }
+
+  String? _currentWalletAddress() {
+    if (widget.selectedAccount == WalletAccount.pqcWallet) {
+      final pqc = _pqcWalletHex;
+      if (pqc == null || pqc.isEmpty) {
+        return null;
+      }
+      return pqc;
+    }
+    return widget.keys.eoaAddress.hex;
+  }
+
+  Future<void> _refreshBalance() async {
+    final requestId = ++_balanceRequestId;
+    final address = _currentWalletAddress();
+    if (address == null) {
+      if (mounted && requestId == _balanceRequestId) {
+        setState(() {
+          _balanceDisplay = '0.00';
+          _loadingBalance = false;
+        });
+      }
+      return;
+    }
+    if (mounted && requestId == _balanceRequestId) {
+      setState(() {
+        _loadingBalance = true;
+      });
+    }
+    try {
+      final result = await rpc.call('eth_getBalance', [address, 'latest']);
+      final hex = result?.toString() ?? '0x0';
+      final cleaned = hex.startsWith('0x') ? hex.substring(2) : hex;
+      final wei = cleaned.isEmpty
+          ? BigInt.zero
+          : BigInt.parse(cleaned, radix: 16);
+      final formatted = _formatEthBalance(wei);
+      if (mounted && requestId == _balanceRequestId) {
+        setState(() {
+          _balanceDisplay = formatted;
+        });
+      }
+    } catch (_) {
+      if (mounted && requestId == _balanceRequestId) {
+        setState(() {
+          _balanceDisplay = '0.00';
+        });
+      }
+    } finally {
+      if (mounted && requestId == _balanceRequestId) {
+        setState(() {
+          _loadingBalance = false;
+        });
+      }
+    }
+  }
+
+  String _formatEthBalance(BigInt wei) {
+    if (wei == BigInt.zero) {
+      return '0.00';
+    }
+    final unit = BigInt.from(10).pow(18);
+    final whole = wei ~/ unit;
+    final remainder = wei.remainder(unit).toString().padLeft(18, '0');
+    final decimals = remainder.substring(0, 5);
+    final trimmed = decimals.replaceFirst(RegExp(r'0+$'), '');
+    if (trimmed.isEmpty) {
+      return '${whole.toString()}.00';
+    }
+    final normalized = trimmed.length == 1 ? '${trimmed}0' : trimmed;
+    return '${whole.toString()}.$normalized';
   }
 
   @override
@@ -1605,6 +1693,13 @@ class _BodyState extends State<_Body> {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
+        Center(
+          child: _BalanceHeader(
+            balanceText: '$_balanceDisplay ETH',
+            loading: _loadingBalance,
+          ),
+        ),
+        const SizedBox(height: 24),
         SizedBox(height: 200, child: ActivityFeed(store: activityStore)),
         const SizedBox(height: 16),
         _Card(
@@ -1845,6 +1940,38 @@ class _BodyState extends State<_Body> {
     final chainId = widget.cfg['chainId'];
     await pendingStore.clear(chainId, wallet.hex);
     widget.setStatus('pendingIndex cleared (canceled by user).');
+  }
+}
+
+class _BalanceHeader extends StatelessWidget {
+  const _BalanceHeader({
+    required this.balanceText,
+    required this.loading,
+  });
+
+  final String balanceText;
+  final bool loading;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final baseStyle =
+        theme.textTheme.displaySmall ?? theme.textTheme.headlineMedium;
+    final textStyle = baseStyle?.copyWith(fontWeight: FontWeight.w600);
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(balanceText, style: textStyle),
+        if (loading) ...[
+          const SizedBox(height: 8),
+          const SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          ),
+        ],
+      ],
+    );
   }
 }
 
